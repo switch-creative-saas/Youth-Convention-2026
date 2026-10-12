@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Link2, ShieldCheck, Copy, QrCode, Trash2, Search, FileSpreadsheet, Ban, RotateCcw, Download } from 'lucide-react';
+import { Link2, ShieldCheck, Copy, QrCode, Trash2, Search, FileSpreadsheet, Ban, RotateCcw, Download, Mail } from 'lucide-react';
 import { QRCodeCanvas } from 'qrcode.react';
 import { AdminLayout } from '@/components/AdminLayout';
 import { useAppData } from '@/contexts/AppDataContext';
@@ -9,6 +9,9 @@ import { usePermission } from '@/hooks/usePermission';
 import { downloadCanvas, downloadCsv } from '@/lib/format';
 import { PortalInput, PortalSelect } from '@/components/ui-kit/FormControls';
 import { DataTable } from '@/components/ui-kit/DataTable';
+import { sendRegistrationConfirmation } from '@/lib/registrationEmail';
+import { createTagImage } from '@/lib/tagImage';
+import { formatDateTime } from '@/lib/format';
 import type { Attendee, RegistrationKind } from '@/types';
 
 const biometricBadge = (status?: string) => {
@@ -22,7 +25,24 @@ const LINK_STATUS_BADGE = { active: 'status-badge-green', expired: 'status-badge
 const PAGE_SIZE = 10;
 
 export function AdminRegistrations() {
-  const { members, executives, registrationLinks, bands, churchGroups, currentEvent, createRegistrationLink, setRegistrationLinkActive, deleteAttendee, updateAttendee } = useAppData();
+  const { members, executives, registrationLinks, bands, churchGroups, currentEvent, createRegistrationLink, setRegistrationLinkActive, deleteAttendee, updateAttendee, refresh } = useAppData();
+  const [emailingId, setEmailingId] = useState<string | null>(null);
+
+  /** Resends the confirmation email (with the tag attached) through the send-registration-email function. */
+  const resendEmail = async (row: Attendee) => {
+    setEmailingId(row.id);
+    try {
+      let tagPng: string | undefined;
+      try { tagPng = await createTagImage(row, currentEvent?.name ?? 'Youth convention', row.kind); } catch { tagPng = undefined; }
+      await sendRegistrationConfirmation(row.statusToken, { tagPng, force: true });
+      addToast({ type: 'success', title: `Confirmation email sent to ${row.email}` });
+    } catch (error) {
+      addToast({ type: 'error', title: 'Email not sent', description: error instanceof Error ? error.message : undefined, duration: 7000 });
+    } finally {
+      setEmailingId(null);
+      void refresh().catch(() => undefined);
+    }
+  };
   const { addToast } = useToast();
   const canRegister = usePermission('register');
   const canManage = usePermission('manage');
@@ -73,12 +93,12 @@ export function AdminRegistrations() {
     const isMember = kind === 'member';
     downloadCsv(
       `${currentEvent?.name ?? 'convention'}-${isMember ? 'members' : 'executives'}.csv`.replace(/\s+/g, '-').toLowerCase(),
-      ['ID', 'Full name', 'Email', 'Phone', 'Gender', 'Date of birth', 'Band', 'Group', 'Departments', 'Church branch', 'Leadership role', 'First timer', 'Wants membership', 'Followed up', 'Biometric', 'Food', 'Souvenir', 'Registered'],
+      ['ID', 'Full name', 'Email', 'Phone', 'Gender', 'Date of birth', 'Band', 'Group', 'Departments', 'Church branch', 'Leadership role', 'First timer', 'Wants membership', 'Followed up', 'Biometric', 'Food', 'Souvenir', 'Confirmation email', 'Registered'],
       filtered.map(row => [
         row.code, row.fullName, row.email, row.phoneNumber, row.gender, row.dateOfBirth, row.fellowshipBand, row.conventionGroup,
         row.departments.join('; '), row.churchBranch, row.leadershipRole, row.isFirstTimer ? 'Yes' : 'No',
         row.wantsPermanentMembership === null ? '' : row.wantsPermanentMembership ? 'Yes' : 'No', row.firstTimerFollowedUp ? 'Yes' : 'No',
-        biometricBadge(row.biometricStatus).label, row.accessClaims.food ?? '', row.accessClaims.souvenir ?? '', row.registeredAt,
+        biometricBadge(row.biometricStatus).label, row.accessClaims.food ?? '', row.accessClaims.souvenir ?? '', row.confirmationEmailSentAt ? `Sent ${row.confirmationEmailSentAt}` : row.confirmationEmailError ? `Failed: ${row.confirmationEmailError}` : 'Not sent', row.registeredAt,
       ]),
     );
   };
@@ -185,7 +205,7 @@ export function AdminRegistrations() {
             <DataTable className="fit-table">
               <thead>
                 <tr className="border-b border-portal-line dark:border-white/[0.06]">
-                  {[kind === 'member' ? 'Member ID' : 'Executive ID', 'Full Name', kind === 'member' ? 'Band' : 'Role', 'Departments', kind === 'member' ? 'Group' : 'Band', 'Registered', 'Biometric', 'Food', 'Souvenir', ...(kind === 'member' ? ['First timer'] : []), 'Actions'].map(h => (
+                  {[kind === 'member' ? 'Member ID' : 'Executive ID', 'Full Name', kind === 'member' ? 'Band' : 'Role', 'Departments', kind === 'member' ? 'Group' : 'Band', 'Registered', 'Biometric', 'Food', 'Souvenir', 'Email', ...(kind === 'member' ? ['First timer'] : []), 'Actions'].map(h => (
                     <th key={h} className="text-left text-xs font-medium uppercase tracking-[0.04em] text-portal-label pb-3 pr-3">{h}</th>
                   ))}
                 </tr>
@@ -205,6 +225,21 @@ export function AdminRegistrations() {
                     <td className="py-3 pr-3"><span className={`${biometricBadge(row.biometricStatus).className} text-[10px]`}>{biometricBadge(row.biometricStatus).label}</span></td>
                     <td className="py-3 pr-3"><span className={`${row.accessClaims.food ? 'status-badge-green' : 'status-badge-amber'} text-[10px]`}>{row.accessClaims.food ? 'Collected' : 'Pending'}</span></td>
                     <td className="py-3 pr-3"><span className={`${row.accessClaims.souvenir ? 'status-badge-green' : 'status-badge-amber'} text-[10px]`}>{row.accessClaims.souvenir ? 'Collected' : 'Pending'}</span></td>
+                    <td className="py-3 pr-3">
+                      <div className="flex items-center gap-1">
+                        <span
+                          title={row.confirmationEmailSentAt ? `Sent ${formatDateTime(row.confirmationEmailSentAt)}` : row.confirmationEmailError ?? 'Not sent'}
+                          className={`${row.confirmationEmailSentAt ? 'status-badge-green' : row.confirmationEmailError ? 'status-badge-red' : 'status-badge-amber'} text-[10px]`}
+                        >
+                          {row.confirmationEmailSentAt ? 'Sent' : row.confirmationEmailError ? 'Failed' : 'Not sent'}
+                        </span>
+                        {canRegister && (
+                          <button aria-label={`Resend confirmation email to ${row.fullName}`} title="Send confirmation email again" disabled={emailingId === row.id} onClick={() => void resendEmail(row)} className="p-1.5 rounded-lg hover:bg-portal-surface transition-colors disabled:opacity-50">
+                            <Mail className={`w-4 h-4 text-portal-label ${emailingId === row.id ? 'animate-pulse' : ''}`} />
+                          </button>
+                        )}
+                      </div>
+                    </td>
                     {kind === 'member' && (
                       <td className="py-3 pr-3">
                         {row.isFirstTimer ? (

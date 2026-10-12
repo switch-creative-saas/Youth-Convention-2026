@@ -13,7 +13,7 @@ import { AdminSettings } from '@/pages/AdminSettings';
 import { AdminAccessManagement } from '@/pages/AdminAccessManagement';
 import { MemberRegistration } from '@/pages/MemberRegistration';
 import { ExecutiveRegistration } from '@/pages/ExecutiveRegistration';
-import { ConventionStatusPortal, ConventionStatusSearchPage } from '@/pages/ConventionStatusPortal';
+import { ConventionStatusPortal, ConventionStatusSearchPage, ConventionTagDownloadPage } from '@/pages/ConventionStatusPortal';
 import { HireDeveloperPage } from '@/pages/HireDeveloperPage';
 import { QRCheckinPage } from '@/pages/QRCheckinPage';
 import { QROnboardingPage } from '@/pages/QROnboardingPage';
@@ -46,6 +46,7 @@ function AppRoutes() {
       <Route path="/register/executive" element={<ExecutiveRegistration />} />
       <Route path="/convention/status" element={<ConventionStatusSearchPage />} />
       <Route path="/convention/status/:token" element={<ConventionStatusPortal />} />
+      <Route path="/convention/status/:token/tag" element={<ConventionTagDownloadPage />} />
       <Route path="/convention/hire" element={<HireDeveloperPage />} />
       <Route path="/convention/status/:token/hire" element={<HireDeveloperPage />} />
       <Route path="/qr/:token" element={<QRCheckinPage />} />

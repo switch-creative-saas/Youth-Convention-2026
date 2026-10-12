@@ -42,7 +42,7 @@ export type Database = {
       attendees: {
         Row: {
           address: string | null; band_id: string | null; biometric_consent_at: string | null; biometric_status: Enum["biometric_status"]
-          church_location_id: string | null; code: string; created_at: string; created_by: string | null; date_of_birth: string | null
+          church_location_id: string | null; code: string; confirmation_email_error: string | null; confirmation_email_id: string | null; confirmation_email_sent_at: string | null; created_at: string; created_by: string | null; date_of_birth: string | null
           email: string; emergency_contact: string | null; event_id: string; first_timer_followed_up: boolean; full_name: string
           gender: string | null; group_id: string | null; id: string; invited_by: string | null; is_first_timer: boolean
           kind: Enum["registration_kind"]; last_verified_at: string | null; leadership_role: string | null; occupation: string | null
@@ -51,7 +51,7 @@ export type Database = {
         }
         Insert: {
           address?: string | null; band_id?: string | null; biometric_consent_at?: string | null; biometric_status?: Enum["biometric_status"]
-          church_location_id?: string | null; code: string; created_at?: string; created_by?: string | null; date_of_birth?: string | null
+          church_location_id?: string | null; code: string; confirmation_email_error?: string | null; confirmation_email_id?: string | null; confirmation_email_sent_at?: string | null; created_at?: string; created_by?: string | null; date_of_birth?: string | null
           email: string; emergency_contact?: string | null; event_id: string; first_timer_followed_up?: boolean; full_name: string
           gender?: string | null; group_id?: string | null; id?: string; invited_by?: string | null; is_first_timer?: boolean
           kind: Enum["registration_kind"]; last_verified_at?: string | null; leadership_role?: string | null; occupation?: string | null
@@ -60,7 +60,7 @@ export type Database = {
         }
         Update: {
           address?: string | null; band_id?: string | null; biometric_consent_at?: string | null; biometric_status?: Enum["biometric_status"]
-          church_location_id?: string | null; code?: string; created_at?: string; created_by?: string | null; date_of_birth?: string | null
+          church_location_id?: string | null; code?: string; confirmation_email_error?: string | null; confirmation_email_id?: string | null; confirmation_email_sent_at?: string | null; created_at?: string; created_by?: string | null; date_of_birth?: string | null
           email?: string; emergency_contact?: string | null; event_id?: string; first_timer_followed_up?: boolean; full_name?: string
           gender?: string | null; group_id?: string | null; id?: string; invited_by?: string | null; is_first_timer?: boolean
           kind?: Enum["registration_kind"]; last_verified_at?: string | null; leadership_role?: string | null; occupation?: string | null

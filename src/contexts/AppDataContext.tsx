@@ -268,6 +268,8 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         biometricConsentAt: row.biometric_consent_at,
         lastVerifiedAt: row.last_verified_at,
         registeredAt: row.registered_at,
+        confirmationEmailSentAt: row.confirmation_email_sent_at,
+        confirmationEmailError: row.confirmation_email_error,
         accessClaims: claims.get(row.id) ?? {},
       };
     });

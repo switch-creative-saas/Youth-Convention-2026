@@ -109,6 +109,8 @@ export interface Attendee {
   biometricConsentAt: string | null;
   lastVerifiedAt: string | null;
   registeredAt: string;
+  confirmationEmailSentAt: string | null;
+  confirmationEmailError: string | null;
   accessClaims: Partial<Record<AccessItemType, string>>;
 }
 export type Member = Attendee;
