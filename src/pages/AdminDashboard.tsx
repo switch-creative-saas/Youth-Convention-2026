@@ -10,7 +10,10 @@ import { useAppData } from '@/contexts/AppDataContext';
 import { useToast } from '@/contexts/ToastContext';
 import { usePermission } from '@/hooks/usePermission';
 import { downloadCanvas, initials, seriesColor, timeAgo } from '@/lib/format';
-import { EXECUTIVE_ROLES, type RegistrationKind } from '@/types';
+import { InviteLinkDialog } from '@/components/InviteLinkDialog';
+import { WORKSPACE_ROLE_LABELS, type Attendee, type RegistrationKind, type WorkspaceRole } from '@/types';
+
+const STAFF_ROLES: WorkspaceRole[] = (Object.keys(WORKSPACE_ROLE_LABELS) as WorkspaceRole[]).filter(role => role !== 'admin');
 
 const biometricStatusLabel = (status?: string) => {
   if (status === 'verified_checked_in') return { label: 'Biometric Verified', className: 'status-badge-green' };
@@ -30,10 +33,40 @@ const ACTION_COLORS: Record<string, string> = {
 
 export function AdminDashboard() {
   const reducedMotion = useReducedMotion();
-  const { members, executives, attendance, adminActivities, bands, today, createRegistrationLink, updateAttendee } = useAppData();
+  const { members, executives, attendance, adminActivities, bands, leadershipRoles, today, workspaceMembers, createRegistrationLink, updateAttendee, inviteStaff } = useAppData();
   const { addToast } = useToast();
   const navigate = useNavigate();
   const canRegister = usePermission('register');
+  const canManage = usePermission('manage');
+  const activeLeadershipRoles = useMemo(() => leadershipRoles.filter(role => role.active).map(role => role.name), [leadershipRoles]);
+  const [accessRole, setAccessRole] = useState<Record<string, WorkspaceRole>>({});
+  const [invitingId, setInvitingId] = useState<string | null>(null);
+  const [shareLink, setShareLink] = useState<{ email: string; link: string } | null>(null);
+
+  const rolesFor = (email: string) => workspaceMembers.filter(member => member.email.toLowerCase() === email.toLowerCase()).map(member => member.role);
+
+  const availableRoles = (email: string) => STAFF_ROLES.filter(role => !rolesFor(email).includes(role));
+
+  const giveAccess = async (exec: Attendee, role: WorkspaceRole) => {
+    setInvitingId(exec.id);
+    try {
+      const result = await inviteStaff(exec.email, role, exec.fullName);
+      if (result.status === 'link' && result.actionLink) {
+        setShareLink({ email: exec.email, link: result.actionLink });
+      } else {
+        addToast({
+          type: 'success',
+          title: `${exec.fullName} can now sign in as ${WORKSPACE_ROLE_LABELS[role]}`,
+          description: result.status === 'invited' ? `An invite email was sent to ${exec.email}.` : 'They already had a login.',
+          duration: 7000,
+        });
+      }
+    } catch (error) {
+      addToast({ type: 'error', title: 'Could not give access', description: error instanceof Error ? error.message : undefined });
+    } finally {
+      setInvitingId(null);
+    }
+  };
   const [showLinkModal, setShowLinkModal] = useState(false);
   const [linkType, setLinkType] = useState<RegistrationKind>('member');
   const [generatedUrl, setGeneratedUrl] = useState('');
@@ -256,7 +289,7 @@ export function AdminDashboard() {
         <div className="mb-5 flex min-w-0 flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h3 className="font-portal text-lg font-medium text-portal-ink">Exco Role Assignments</h3>
-            <p className="mt-1 text-sm text-portal-label">Assign or update each registered executive's convention responsibility.</p>
+            <p className="mt-1 text-sm text-portal-label">Assign or update each registered executive's convention responsibility. Roles come from Convention → Leadership Roles.</p>
           </div>
           <span className="portal-tag w-fit">{executives.length} registered excos</span>
         </div>
@@ -266,7 +299,7 @@ export function AdminDashboard() {
             <table className="portal-data-table">
               <thead>
                 <tr className="border-b border-portal-line">
-                  {['Executive', 'Department', 'Band', 'Assigned Role'].map(header => (
+                  {['Executive', 'Department', 'Band', 'Assigned Role', 'Dashboard Access'].map(header => (
                     <th key={header} className="pb-3 pr-4 text-left text-xs font-medium uppercase tracking-[0.04em] text-portal-label">{header}</th>
                   ))}
                 </tr>
@@ -288,9 +321,34 @@ export function AdminDashboard() {
                         aria-label={`Assigned role for ${exec.fullName}`}
                         className="portal-focus min-h-11 min-w-[220px] rounded-full border border-portal-line bg-portal-from px-3 py-2 text-sm text-portal-ink"
                       >
-                        {!EXECUTIVE_ROLES.includes(exec.leadershipRole) && <option value={exec.leadershipRole}>{exec.leadershipRole || 'Unassigned'}</option>}
-                        {EXECUTIVE_ROLES.map(role => <option key={role} value={role}>{role}</option>)}
+                        {!activeLeadershipRoles.includes(exec.leadershipRole) && <option value={exec.leadershipRole}>{exec.leadershipRole || 'Unassigned'}</option>}
+                        {activeLeadershipRoles.map(role => <option key={role} value={role}>{role}</option>)}
                       </select>
+                    </td>
+                    <td className="py-4 pr-4">
+                      <div className="flex min-w-[240px] flex-wrap items-center gap-2">
+                        {rolesFor(exec.email).map(role => <span key={role} className="status-badge-green text-[10px]">{WORKSPACE_ROLE_LABELS[role]}</span>)}
+                        {canManage && availableRoles(exec.email).length > 0 && (
+                          <>
+                            <select
+                              aria-label={`Dashboard role for ${exec.fullName}`}
+                              value={accessRole[exec.id] && availableRoles(exec.email).includes(accessRole[exec.id]) ? accessRole[exec.id] : availableRoles(exec.email)[0]}
+                              onChange={event => setAccessRole(prev => ({ ...prev, [exec.id]: event.target.value as WorkspaceRole }))}
+                              className="portal-focus min-h-10 rounded-full border border-portal-line bg-portal-from px-3 text-xs text-portal-ink"
+                            >
+                              {availableRoles(exec.email).map(role => <option key={role} value={role}>{WORKSPACE_ROLE_LABELS[role]}</option>)}
+                            </select>
+                            <button
+                              onClick={() => void giveAccess(exec, accessRole[exec.id] && availableRoles(exec.email).includes(accessRole[exec.id]) ? accessRole[exec.id] : availableRoles(exec.email)[0])}
+                              disabled={invitingId === exec.id}
+                              className="portal-focus min-h-10 rounded-full bg-portal-dark px-3 text-xs font-medium text-white disabled:opacity-60"
+                            >
+                              {invitingId === exec.id ? 'Sending…' : rolesFor(exec.email).length ? 'Add role' : 'Give access'}
+                            </button>
+                          </>
+                        )}
+                        {!canManage && rolesFor(exec.email).length === 0 && <span className="text-xs text-portal-label">No access</span>}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -299,6 +357,8 @@ export function AdminDashboard() {
           </div>
         )}
       </motion.div>
+
+      {shareLink && <InviteLinkDialog email={shareLink.email} link={shareLink.link} onClose={() => setShareLink(null)} />}
 
       {/* Link Generation Modal */}
       {showLinkModal && (

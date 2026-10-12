@@ -8,18 +8,22 @@ import { useToast } from '@/contexts/ToastContext';
 import { PillButton } from '@/components/ui-kit/PillButton';
 import { PortalInput, PortalSelect, formLabelClass } from '@/components/ui-kit/FormControls';
 import { formatDateTime } from '@/lib/format';
+import { InviteLinkDialog } from '@/components/InviteLinkDialog';
+import type { InviteResult } from '@/lib/api';
 import { WORKSPACE_ROLE_LABELS, type WorkspaceRole } from '@/types';
 
 const STAFF_ROLES = (Object.keys(WORKSPACE_ROLE_LABELS) as WorkspaceRole[]).filter(role => role !== 'admin');
 
 export function AdminAccessManagement() {
-  const { workspaces, currentWorkspace, workspaceMembers, adminActivities, assignRole, revokeRole, createWorkspace } = useAppData();
+  const { workspaces, currentWorkspace, workspaceMembers, adminActivities, inviteStaff, revokeRole, createWorkspace } = useAppData();
   const { isPlatformAdmin, refreshProfile } = useAuth();
   const { addToast } = useToast();
   const [email, setEmail] = useState('');
+  const [staffName, setStaffName] = useState('');
+  const [shareLink, setShareLink] = useState<{ email: string; link: string } | null>(null);
   const [role, setRole] = useState<WorkspaceRole>('registration_desk');
   const [busy, setBusy] = useState(false);
-  const [workspaceForm, setWorkspaceForm] = useState({ name: '', slug: '', ownerEmail: '', codePrefix: 'MOSYF' });
+  const [workspaceForm, setWorkspaceForm] = useState({ name: '', slug: '', ownerEmail: '', ownerName: '', codePrefix: 'MOSYF' });
 
   const roleOptions: WorkspaceRole[] = isPlatformAdmin ? ['admin', ...STAFF_ROLES] : STAFF_ROLES;
   const admins = workspaceMembers.filter(member => member.role === 'admin');
@@ -28,7 +32,7 @@ export function AdminAccessManagement() {
     setBusy(true);
     try {
       await action();
-      addToast({ type: 'success', title: success });
+      if (success) addToast({ type: 'success', title: success });
     } catch (error) {
       addToast({ type: 'error', title: failure, description: error instanceof Error ? error.message : undefined, duration: 7000 });
     } finally {
@@ -36,24 +40,46 @@ export function AdminAccessManagement() {
     }
   };
 
+  /** Tells the admin what happened: emailed invite, existing login, or a link to share by hand. */
+  const reportInvite = (target: string, result: InviteResult, what: string) => {
+    if (result.status === 'link' && result.actionLink) {
+      setShareLink({ email: target, link: result.actionLink });
+      return;
+    }
+    addToast({
+      type: 'success',
+      title: what,
+      description: result.status === 'invited' ? `An invite email was sent to ${target} to set their password.` : `${target} already has a login and can sign in now.`,
+      duration: 7000,
+    });
+  };
+
   const submitRole = (event: React.FormEvent) => {
     event.preventDefault();
-    if (!email.trim()) return;
-    void run(async () => { await assignRole(email.trim(), role); setEmail(''); }, `${WORKSPACE_ROLE_LABELS[role]} assigned to ${email.trim()}`, 'Could not assign role');
+    const target = email.trim().toLowerCase();
+    if (!target) return;
+    void run(async () => {
+      const result = await inviteStaff(target, role, staffName.trim() || undefined);
+      setEmail(''); setStaffName('');
+      reportInvite(target, result, `${WORKSPACE_ROLE_LABELS[role]} access given to ${target}`);
+    }, '', 'Could not give access');
   };
 
   const submitWorkspace = (event: React.FormEvent) => {
     event.preventDefault();
+    const target = workspaceForm.ownerEmail.trim().toLowerCase();
     void run(async () => {
-      await createWorkspace({
+      const result = await createWorkspace({
         name: workspaceForm.name.trim(),
         slug: workspaceForm.slug.trim().toLowerCase(),
-        ownerEmail: workspaceForm.ownerEmail.trim(),
+        ownerEmail: target,
+        ownerName: workspaceForm.ownerName.trim() || undefined,
         codePrefix: workspaceForm.codePrefix.trim().toUpperCase(),
       });
       await refreshProfile();
-      setWorkspaceForm({ name: '', slug: '', ownerEmail: '', codePrefix: 'MOSYF' });
-    }, 'Workspace created', 'Could not create workspace');
+      setWorkspaceForm({ name: '', slug: '', ownerEmail: '', ownerName: '', codePrefix: 'MOSYF' });
+      reportInvite(target, result, `Workspace created for ${target}`);
+    }, '', 'Could not create workspace');
   };
 
   return (
@@ -75,11 +101,12 @@ export function AdminAccessManagement() {
       {isPlatformAdmin && (
         <motion.section className="portal-card mb-6 p-4 sm:p-6" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
           <div className="mb-4 flex items-center gap-2"><Building2 className="h-5 w-5 text-portal-ink" /><h3 className="font-display text-lg font-semibold text-portal-ink dark:text-white">Workspaces</h3></div>
-          <p className="mb-4 max-w-3xl text-sm text-portal-label">Each workspace is a separate, empty dashboard for one admin. Create the admin's login first in Supabase (Authentication → Add user), then create their workspace here with the same email.</p>
-          <form onSubmit={submitWorkspace} className="grid gap-3 md:grid-cols-[1.2fr_1fr_1.2fr_0.6fr_auto] md:items-end">
+          <p className="mb-4 max-w-3xl text-sm text-portal-label">Each workspace is a separate, empty dashboard for one admin. Enter their email and they'll be invited to set a password (an existing login is simply given access).</p>
+          <form onSubmit={submitWorkspace} className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1.2fr_1fr_1.2fr_1fr_0.6fr_auto] xl:items-end">
             <div><label className={formLabelClass}>Workspace name</label><PortalInput required value={workspaceForm.name} onChange={e => setWorkspaceForm({ ...workspaceForm, name: e.target.value, slug: workspaceForm.slug || e.target.value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') })} placeholder="e.g. Lagos Youth Fellowship" /></div>
             <div><label className={formLabelClass}>Slug (public status URL)</label><PortalInput required pattern="[a-z0-9][a-z0-9-]{1,48}[a-z0-9]" value={workspaceForm.slug} onChange={e => setWorkspaceForm({ ...workspaceForm, slug: e.target.value.toLowerCase() })} placeholder="lagos-youth" /></div>
             <div><label className={formLabelClass}>Admin email</label><PortalInput required type="email" value={workspaceForm.ownerEmail} onChange={e => setWorkspaceForm({ ...workspaceForm, ownerEmail: e.target.value })} placeholder="admin@example.com" /></div>
+            <div><label className={formLabelClass}>Admin name</label><PortalInput value={workspaceForm.ownerName} onChange={e => setWorkspaceForm({ ...workspaceForm, ownerName: e.target.value })} placeholder="Optional" /></div>
             <div><label className={formLabelClass}>ID prefix</label><PortalInput required pattern="[A-Za-z0-9]{2,10}" value={workspaceForm.codePrefix} onChange={e => setWorkspaceForm({ ...workspaceForm, codePrefix: e.target.value.toUpperCase() })} /></div>
             <PillButton variant="dark" type="submit" disabled={busy}><Plus className="h-4 w-4" /> Create</PillButton>
           </form>
@@ -100,16 +127,17 @@ export function AdminAccessManagement() {
         <div className="grid min-w-0 grid-cols-1 gap-6 2xl:grid-cols-[1.35fr_0.65fr]">
           <motion.div className="portal-card min-w-0 p-4 sm:p-6" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
             <h3 className="font-display font-semibold text-lg text-portal-ink dark:text-white">Staff of {currentWorkspace.name}</h3>
-            <p className="mt-1 text-sm text-portal-label">Staff need a login first (Supabase → Authentication → Add user). Then assign their role here by email.</p>
+            <p className="mt-1 text-sm text-portal-label">Enter an email and role. New people get an invite email to set their password; people who already have a login get the role straight away.</p>
 
-            <form onSubmit={submitRole} className="mt-5 grid gap-3 sm:grid-cols-[1fr_220px_auto] sm:items-end">
+            <form onSubmit={submitRole} className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_220px_auto] lg:items-end">
               <div><label className={formLabelClass}>Email</label><PortalInput type="email" required value={email} onChange={e => setEmail(e.target.value)} placeholder="staff@example.com" /></div>
+              <div><label className={formLabelClass}>Name</label><PortalInput value={staffName} onChange={e => setStaffName(e.target.value)} placeholder="Optional" /></div>
               <div><label className={formLabelClass}>Role</label>
                 <PortalSelect value={role} onChange={e => setRole(e.target.value as WorkspaceRole)}>
                   {roleOptions.map(option => <option key={option} value={option}>{WORKSPACE_ROLE_LABELS[option]}</option>)}
                 </PortalSelect>
               </div>
-              <PillButton variant="dark" type="submit" disabled={busy}>Assign</PillButton>
+              <PillButton variant="dark" type="submit" disabled={busy}>{busy ? 'Sending…' : 'Give access'}</PillButton>
             </form>
 
             <div className="mt-6 space-y-3">
@@ -151,6 +179,7 @@ export function AdminAccessManagement() {
           </motion.div>
         </div>
       )}
+      {shareLink && <InviteLinkDialog email={shareLink.email} link={shareLink.link} onClose={() => setShareLink(null)} />}
     </AdminLayout>
   );
 }

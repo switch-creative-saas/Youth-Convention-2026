@@ -8,6 +8,34 @@ if (!url || !key) {
   throw new Error('Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY in .env.local.');
 }
 
+export interface PendingAuthLink {
+  type: string | null;
+  accessToken: string | null;
+  refreshToken: string | null;
+  error: string | null;
+}
+
+/**
+ * Invite and admin-generated links return tokens in the URL fragment (#access_token=...),
+ * which collides with the HashRouter. Read them before the router or client sees them,
+ * then reset the fragment to the app root. AuthContext turns them into a session.
+ */
+function consumeAuthFragment(): PendingAuthLink | null {
+  if (typeof window === 'undefined') return null;
+  const fragment = window.location.hash.replace(/^#\/?/, '');
+  if (!/(^|&)(access_token|error_description)=/.test(fragment)) return null;
+  const params = new URLSearchParams(fragment);
+  window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#/`);
+  return {
+    type: params.get('type'),
+    accessToken: params.get('access_token'),
+    refreshToken: params.get('refresh_token'),
+    error: params.get('error_description'),
+  };
+}
+
+export const pendingAuthLink = consumeAuthFragment();
+
 export const supabase = createClient<Database>(url, key, {
   auth: {
     // PKCE puts the auth code in the query string, which works alongside the HashRouter.

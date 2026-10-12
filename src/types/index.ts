@@ -57,11 +57,12 @@ export interface ManagedListItem {
 export type Band = ManagedListItem;
 export type DepartmentItem = ManagedListItem;
 export type ChurchLocation = ManagedListItem;
+export type LeadershipRole = ManagedListItem;
 export interface ChurchGroup extends ManagedListItem {
   autoAssign: boolean;
   forUnbanded: boolean;
 }
-export type ManagedListEntity = 'bands' | 'departments' | 'churchGroups' | 'churchLocations';
+export type ManagedListEntity = 'bands' | 'departments' | 'churchGroups' | 'churchLocations' | 'leadershipRoles';
 
 export interface Programme {
   id: string;
@@ -186,14 +187,6 @@ export interface Toast {
   description?: string;
   duration?: number;
 }
-
-/** Suggested leadership roles for the executive form (free text is also accepted). */
-export const EXECUTIVE_ROLES = [
-  'President', 'Vice President', 'Secretary', 'Assistant Secretary',
-  'Financial Secretary', 'Prayer Coordinator', 'Choir Director',
-  'Welfare Coordinator', 'Evangelism Coordinator', 'Technical Director',
-  'Media Director', 'Youth Pastor', 'Other',
-];
 
 export const WORKSPACE_ROLE_LABELS: Record<WorkspaceRole, string> = {
   admin: 'Admin',

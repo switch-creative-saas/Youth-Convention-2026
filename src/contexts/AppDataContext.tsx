@@ -4,7 +4,7 @@ import * as api from '@/lib/api';
 import { photoUrl, supabase } from '@/lib/supabase';
 import type {
   AccessItemType, AdminActivityLog, Attendee, AttendanceRecord, Band, BiometricDevice, BiometricLog, ChurchGroup,
-  ChurchLocation, ConventionEvent, DepartmentItem, ManagedListEntity, Programme, RegistrationKind, RegistrationLink,
+  ChurchLocation, ConventionEvent, LeadershipRole, DepartmentItem, ManagedListEntity, Programme, RegistrationKind, RegistrationLink,
   Workspace, WorkspaceMember, WorkspaceRole,
 } from '@/types';
 
@@ -37,6 +37,7 @@ interface AppDataContextType {
   churchGroups: ChurchGroup[];
   churchLocations: ChurchLocation[];
   programmes: Programme[];
+  leadershipRoles: LeadershipRole[];
   workspaceMembers: WorkspaceMember[];
   myRoles: WorkspaceRole[];
 
@@ -57,9 +58,10 @@ interface AppDataContextType {
   deleteDevice: (id: string) => Promise<void>;
   reportDeviceStatus: (id: string, status: BiometricDevice['status']) => Promise<void>;
   purgeFingerprints: () => Promise<number>;
-  assignRole: (email: string, role: WorkspaceRole) => Promise<void>;
+  /** Gives someone dashboard access, creating and inviting their login if needed. */
+  inviteStaff: (email: string, role: WorkspaceRole, name?: string) => Promise<api.InviteResult>;
   revokeRole: (userId: string, role: WorkspaceRole) => Promise<void>;
-  createWorkspace: (input: { name: string; slug: string; ownerEmail: string; codePrefix: string }) => Promise<void>;
+  createWorkspace: (input: { name: string; slug: string; ownerEmail: string; ownerName?: string; codePrefix: string }) => Promise<api.InviteResult>;
 }
 
 const AppDataContext = createContext<AppDataContextType | undefined>(undefined);
@@ -70,7 +72,7 @@ function readStoredWorkspace() {
 
 type EventConfig = Awaited<ReturnType<typeof api.fetchEventConfig>>;
 type AttendeeData = Awaited<ReturnType<typeof api.fetchAttendeeData>>;
-const EMPTY_CONFIG: EventConfig = { bands: [], departments: [], churchGroups: [], churchLocations: [], programmes: [] };
+const EMPTY_CONFIG: EventConfig = { bands: [], departments: [], churchGroups: [], churchLocations: [], programmes: [], leadershipRoles: [] };
 const EMPTY_ATTENDEE_DATA: AttendeeData = { attendees: [], departments: [], claims: [] };
 const EMPTY: never[] = [];
 
@@ -407,10 +409,11 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       await loaders.biometric();
       return count;
     },
-    assignRole: async (email, role) => {
+    inviteStaff: async (email, role, name) => {
       const workspace = requireWorkspace();
-      await api.assignWorkspaceRole(workspace, email, role);
+      const result = await api.inviteStaff({ workspaceId: workspace, email, role, name });
       setWorkspaceMembers(await api.fetchWorkspaceMembers(workspace));
+      return result;
     },
     revokeRole: async (memberUserId, role) => {
       const workspace = requireWorkspace();
@@ -418,9 +421,10 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       setWorkspaceMembers(await api.fetchWorkspaceMembers(workspace));
     },
     createWorkspace: async input => {
-      const id = await api.createWorkspace(input);
+      const result = await api.createWorkspace(input);
       setWorkspaceList({ userId, list: await api.fetchWorkspaces() });
-      if (id) setCurrentWorkspaceId(id);
+      if (result.workspaceId) setCurrentWorkspaceId(result.workspaceId);
+      return result;
     },
   };
 

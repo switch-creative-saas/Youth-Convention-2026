@@ -81,7 +81,7 @@ function toForm(event: ConventionEvent | null): EventForm {
 export function AdminSettings() {
   const {
     currentEvent, events, saveEvent, activateEvent, programmes, saveProgramme, deleteProgramme,
-    bands, departments, churchGroups, churchLocations, saveListItem, deleteListItem, purgeFingerprints,
+    bands, departments, churchGroups, churchLocations, leadershipRoles, saveListItem, deleteListItem, purgeFingerprints,
   } = useAppData();
   const { addToast } = useToast();
   const [creatingNew, setCreatingNew] = useState(false);
@@ -249,6 +249,7 @@ export function AdminSettings() {
               <ManagedList title="Departments" items={departments} {...listHandlers('departments')} />
               <ManagedList title="Groups" items={churchGroups} withColor groupOptions {...listHandlers('churchGroups')} />
               <ManagedList title="Locations" items={churchLocations} {...listHandlers('churchLocations')} />
+              <ManagedList title="Leadership Roles" items={leadershipRoles} {...listHandlers('leadershipRoles')} />
             </div>
           </motion.div>
 

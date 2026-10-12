@@ -105,6 +105,12 @@ export type Database = {
         Update: { created_at?: string; created_by?: string | null; event_id?: string; id?: string; is_active?: boolean; name?: string; sort_order?: number; updated_at?: string; workspace_id?: string }
         Relationships: []
       }
+      leadership_roles: {
+        Row: { created_at: string; created_by: string | null; event_id: string; id: string; is_active: boolean; name: string; sort_order: number; updated_at: string; workspace_id: string }
+        Insert: { created_at?: string; created_by?: string | null; event_id: string; id?: string; is_active?: boolean; name: string; sort_order?: number; updated_at?: string; workspace_id: string }
+        Update: { created_at?: string; created_by?: string | null; event_id?: string; id?: string; is_active?: boolean; name?: string; sort_order?: number; updated_at?: string; workspace_id?: string }
+        Relationships: []
+      }
       event_code_counters: {
         Row: { event_id: string; kind: Enum["registration_kind"]; last_value: number }
         Insert: { event_id: string; kind: Enum["registration_kind"]; last_value?: number }

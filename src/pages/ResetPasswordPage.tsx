@@ -4,7 +4,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
 
 export function ResetPasswordPage() {
-  const { updatePassword, logout } = useAuth();
+  const { updatePassword, logout, passwordRecovery, user } = useAuth();
+  const isInvite = passwordRecovery === 'invite';
   const { addToast } = useToast();
   const navigate = useNavigate();
   const [password, setPassword] = useState('');
@@ -20,9 +21,15 @@ export function ResetPasswordPage() {
     setSaving(true);
     try {
       await updatePassword(password);
-      addToast({ type: 'success', title: 'Password updated', description: 'Sign in with your new password.' });
-      await logout();
-      navigate('/login', { replace: true });
+      if (isInvite) {
+        // Invited staff stay signed in and go straight to their dashboard.
+        addToast({ type: 'success', title: 'Welcome aboard', description: 'Your password is set.' });
+        navigate('/admin/dashboard', { replace: true });
+      } else {
+        addToast({ type: 'success', title: 'Password updated', description: 'Sign in with your new password.' });
+        await logout();
+        navigate('/login', { replace: true });
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Unable to update the password.');
     } finally {
@@ -36,8 +43,10 @@ export function ResetPasswordPage() {
     <main className="portal-theme portal-canvas grid min-h-[100dvh] place-items-center px-4">
       <form onSubmit={submit} className="w-full max-w-[420px] space-y-4 rounded-[32px] border border-portal-line bg-white p-6 shadow-surface dark:bg-portal-surface sm:p-9">
         <div className="text-center">
-          <h1 className="text-2xl font-semibold text-portal-ink">Choose a new password</h1>
-          <p className="mt-2 text-sm text-portal-label">This replaces your current password.</p>
+          <h1 className="text-2xl font-semibold text-portal-ink">{isInvite ? 'Welcome — set your password' : 'Choose a new password'}</h1>
+          <p className="mt-2 text-sm text-portal-label">
+            {isInvite ? `You've been given access to the convention dashboard${user?.email ? ` as ${user.email}` : ''}. Choose a password to finish.` : 'This replaces your current password.'}
+          </p>
         </div>
         {error && <p role="alert" className="rounded-2xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-700 dark:text-red-300">{error}</p>}
         <input type="password" autoComplete="new-password" placeholder="New password" value={password} onChange={event => setPassword(event.target.value)} className={inputClass} />

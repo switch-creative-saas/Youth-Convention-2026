@@ -8,7 +8,6 @@ import { sendRegistrationConfirmation } from '@/lib/registrationEmail';
 import { getRegistrationForm, registerAttendee, type RegistrationForm } from '@/lib/api';
 import { compressPhoto, uploadRegistrationPhoto } from '@/lib/photos';
 import { statusUrl } from '@/lib/supabase';
-import { EXECUTIVE_ROLES } from '@/types';
 
 export function ExecutiveRegistration() {
   const navigate = useNavigate();
@@ -66,7 +65,7 @@ export function ExecutiveRegistration() {
     if (!token || !formData) return;
     const needsDepartment = formData.departments.length > 0;
     const needsBand = formData.bands.length > 0;
-    if (!form.fullName.trim() || !form.leadershipRole || (needsDepartment && !form.departmentId) || (needsBand && !form.bandId) || !form.phoneNumber.trim() || !form.email.trim() || !form.address.trim() || !photoBlob) {
+    if (!form.fullName.trim() || !form.leadershipRole.trim() || (needsDepartment && !form.departmentId) || (needsBand && !form.bandId) || !form.phoneNumber.trim() || !form.email.trim() || !form.address.trim() || !photoBlob) {
       addToast({ type: 'error', title: 'Please fill in all required fields' });
       return;
     }
@@ -77,7 +76,7 @@ export function ExecutiveRegistration() {
       const photoPath = await uploadRegistrationPhoto(formData.photoPathPrefix, photoBlob);
       const registered = await registerAttendee(token, {
         fullName: form.fullName.trim(),
-        leadershipRole: form.leadershipRole,
+        leadershipRole: form.leadershipRole.trim(),
         departmentIds: form.departmentId ? [form.departmentId] : [],
         bandId: form.bandId || null,
         phoneNumber: form.phoneNumber.trim(),
@@ -147,10 +146,14 @@ export function ExecutiveRegistration() {
                 <div className="sm:col-span-2"><label className={label}>Full Name *</label><input className={inputClass} value={form.fullName} onChange={e => update('fullName', e.target.value)} placeholder="Full Name" /></div>
                 <div>
                   <label className={label}>Leadership Role *</label>
-                  <select className={inputClass} value={form.leadershipRole} onChange={e => update('leadershipRole', e.target.value)}>
-                    <option value="">Select Role</option>
-                    {EXECUTIVE_ROLES.map(r => <option key={r} value={r}>{r}</option>)}
-                  </select>
+                  {formData.leadershipRoles.length > 0 ? (
+                    <select className={inputClass} value={form.leadershipRole} onChange={e => update('leadershipRole', e.target.value)}>
+                      <option value="">Select Role</option>
+                      {formData.leadershipRoles.map(role => <option key={role.id} value={role.name}>{role.name}</option>)}
+                    </select>
+                  ) : (
+                    <input className={inputClass} value={form.leadershipRole} onChange={e => update('leadershipRole', e.target.value)} placeholder="e.g. Secretary" />
+                  )}
                 </div>
                 {formData.departments.length > 0 && (
                   <div>

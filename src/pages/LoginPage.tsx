@@ -19,7 +19,7 @@ export function LoginPage() {
   const [resetEmail, setResetEmail] = useState('');
   const [resetState, setResetState] = useState<'idle' | 'sending' | 'sent'>('idle');
   const [resetError, setResetError] = useState('');
-  const { login, requestPasswordReset, user, isLoading } = useAuth();
+  const { login, requestPasswordReset, user, isLoading, authLinkError } = useAuth();
   const { resolvedTheme, toggleTheme } = useTheme();
   const { addToast } = useToast();
   const navigate = useNavigate();
@@ -66,6 +66,7 @@ export function LoginPage() {
       <div className="absolute left-4 top-1/2 hidden -translate-y-1/2 lg:block"><LoginIllustration side="left" /></div><div className="absolute right-4 top-1/2 hidden -translate-y-1/2 lg:block"><LoginIllustration side="right" /></div>
       <motion.div className="relative z-10 w-full max-w-[420px] rounded-[32px] border border-portal-line bg-white p-6 shadow-[0_20px_60px_rgb(40_37_22_/_0.12)] dark:bg-portal-surface sm:p-9" initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }}>
         <div className="mb-7 text-center"><h1 className="text-3xl font-semibold text-portal-ink">Welcome back</h1><p className="mx-auto mt-2 max-w-[260px] text-sm leading-6 text-portal-label">Sign in to your convention admin dashboard.</p></div>
+        {authLinkError && !error && <p role="alert" className="mb-4 rounded-2xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-800 dark:text-amber-200">That email link has expired or was already used ({authLinkError}). Ask your admin to send a new invite, or use "Forgot password?".</p>}
         {error && <p role="alert" className="mb-4 rounded-2xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-700 dark:text-red-300">{error}</p>}
         <form onSubmit={handleSubmit} className="space-y-4" noValidate>
           <div><label htmlFor="email" className="sr-only">Email address</label><input id="email" type="email" value={email} onChange={event => setEmail(event.target.value)} placeholder="Email address" autoComplete="email" required aria-invalid={Boolean(error)} className="portal-focus h-[52px] w-full rounded-2xl border border-portal-line bg-white px-4 text-sm text-portal-ink outline-none placeholder:text-portal-label focus:border-portal-accent focus:ring-2 focus:ring-portal-accent/45 dark:bg-[#1E1E1C]" /></div>

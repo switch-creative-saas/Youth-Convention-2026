@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { Session } from '@supabase/supabase-js';
-import { appBaseUrl, errorMessage, supabase } from '@/lib/supabase';
+import { appBaseUrl, errorMessage, pendingAuthLink, supabase } from '@/lib/supabase';
 import type { User, UserRole, WorkspaceRole } from '@/types';
 
 export interface Membership {
@@ -14,8 +14,10 @@ interface AuthContextType {
   isPlatformAdmin: boolean;
   memberships: Membership[];
   isLoading: boolean;
-  /** True after the user opens a password-reset email link. */
-  passwordRecovery: boolean;
+  /** Set after the user opens an invite or password-reset link: they must choose a password. */
+  passwordRecovery: false | 'invite' | 'recovery';
+  /** Error carried back on an expired or invalid email link. */
+  authLinkError: string | null;
   login: (email: string, password: string) => Promise<{ success: boolean; role?: UserRole; error?: string }>;
   logout: () => Promise<void>;
   requestPasswordReset: (email: string) => Promise<void>;
@@ -58,7 +60,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [memberships, setMemberships] = useState<Membership[]>([]);
   const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [passwordRecovery, setPasswordRecovery] = useState(false);
+  const [passwordRecovery, setPasswordRecovery] = useState<false | 'invite' | 'recovery'>(
+    pendingAuthLink?.accessToken && (pendingAuthLink.type === 'invite' || pendingAuthLink.type === 'recovery') ? pendingAuthLink.type : false,
+  );
+  const [authLinkError] = useState(() => pendingAuthLink?.error ?? null);
 
   const applySession = useCallback(async (next: Session | null) => {
     setSession(next);
@@ -81,9 +86,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    void supabase.auth.getSession().then(({ data }) => applySession(data.session));
+    const start = async () => {
+      if (pendingAuthLink?.accessToken && pendingAuthLink.refreshToken) {
+        const { error } = await supabase.auth.setSession({ access_token: pendingAuthLink.accessToken, refresh_token: pendingAuthLink.refreshToken });
+        if (error) console.error('Unable to use the email link', error);
+      }
+      const { data } = await supabase.auth.getSession();
+      await applySession(data.session);
+    };
+    void start();
     const { data: subscription } = supabase.auth.onAuthStateChange((event, next) => {
-      if (event === 'PASSWORD_RECOVERY') setPasswordRecovery(true);
+      if (event === 'PASSWORD_RECOVERY') setPasswordRecovery('recovery');
       if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || event === 'USER_UPDATED' || event === 'PASSWORD_RECOVERY') {
         // Defer: Supabase calls inside this callback can deadlock the auth lock.
         window.setTimeout(() => { void applySession(next); }, 0);
@@ -129,7 +142,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider value={{
-      user: session ? user : null, role, isPlatformAdmin, memberships, isLoading, passwordRecovery,
+      user: session ? user : null, role, isPlatformAdmin, memberships, isLoading, passwordRecovery, authLinkError,
       login, logout, requestPasswordReset, updatePassword, refreshProfile,
     }}>
       {children}

@@ -1,4 +1,4 @@
-import { errorMessage, registrationUrl, supabase } from '@/lib/supabase';
+import { appBaseUrl, errorMessage, registrationUrl, supabase } from '@/lib/supabase';
 import type { Json, TableRow } from '@/types/database';
 import type {
   AccessItemType, AdminActivityLog, BiometricDevice, BiometricEventResult, ChurchGroup, ConventionEvent,
@@ -100,20 +100,22 @@ export async function fetchEvents(workspaceId: string) {
 }
 
 export async function fetchEventConfig(eventId: string) {
-  const [bands, departments, groups, locations, programmes] = await Promise.all([
+  const [bands, departments, groups, locations, programmes, leadershipRoles] = await Promise.all([
     supabase.from('bands').select('*').eq('event_id', eventId).order('sort_order'),
     supabase.from('departments').select('*').eq('event_id', eventId).order('sort_order'),
     supabase.from('convention_groups').select('*').eq('event_id', eventId).order('sort_order'),
     supabase.from('church_locations').select('*').eq('event_id', eventId).order('sort_order'),
     supabase.from('programmes').select('*').eq('event_id', eventId).order('date').order('start_time'),
+    supabase.from('leadership_roles').select('*').eq('event_id', eventId).order('sort_order'),
   ]);
-  for (const result of [bands, departments, groups, locations, programmes]) if (result.error) fail(result.error);
+  for (const result of [bands, departments, groups, locations, programmes, leadershipRoles]) if (result.error) fail(result.error);
   return {
     bands: (bands.data ?? []).map(mapListItem),
     departments: (departments.data ?? []).map(mapListItem),
     churchGroups: (groups.data ?? []).map(mapGroup),
     churchLocations: (locations.data ?? []).map(mapListItem),
     programmes: (programmes.data ?? []).map(mapProgramme),
+    leadershipRoles: (leadershipRoles.data ?? []).map(mapListItem),
   };
 }
 
@@ -147,6 +149,7 @@ const LIST_TABLES = {
   departments: 'departments',
   churchGroups: 'convention_groups',
   churchLocations: 'church_locations',
+  leadershipRoles: 'leadership_roles',
 } as const;
 
 export async function saveListItem(
@@ -361,22 +364,47 @@ export async function deleteDevice(id: string) {
 // Roles and workspaces
 // ---------------------------------------------------------------------------
 
-export async function assignWorkspaceRole(workspaceId: string, email: string, role: WorkspaceRole) {
-  const { error } = await supabase.rpc('assign_workspace_role', { p_workspace: workspaceId, p_email: email, p_role: role });
-  if (error) fail(error);
-}
-
 export async function revokeWorkspaceRole(workspaceId: string, userId: string, role: WorkspaceRole) {
   const { error } = await supabase.from('workspace_members').delete().eq('workspace_id', workspaceId).eq('user_id', userId).eq('role', role);
   if (error) fail(error);
 }
 
-export async function createWorkspace(input: { name: string; slug: string; ownerEmail: string; codePrefix: string }) {
-  const { data, error } = await supabase.rpc('create_workspace', {
-    p_name: input.name, p_slug: input.slug, p_owner_email: input.ownerEmail, p_code_prefix: input.codePrefix,
+export interface InviteResult {
+  /** existing: login already existed; invited: invite email sent; link: email failed, share actionLink privately. */
+  status: 'existing' | 'invited' | 'link';
+  actionLink?: string;
+  emailError?: string;
+  workspaceId?: string;
+}
+
+/** Calls the invite-staff Edge Function and surfaces its error message. */
+async function invokeInvite(body: Record<string, unknown>) {
+  const { data, error } = await supabase.functions.invoke<InviteResult>('invite-staff', {
+    body: { ...body, redirectTo: appBaseUrl() },
   });
-  if (error) fail(error);
+  if (error) {
+    const context = (error as { context?: Response }).context;
+    let message = error.message;
+    if (context && typeof context.json === 'function') {
+      try { message = ((await context.json()) as { error?: string }).error ?? message; } catch { /* keep default */ }
+    }
+    throw new Error(message);
+  }
+  if (!data) throw new Error('No response from the invite service.');
   return data;
+}
+
+/** Gives someone a role in a workspace, creating and inviting their login if needed. */
+export function inviteStaff(input: { workspaceId: string; email: string; role: WorkspaceRole; name?: string }) {
+  return invokeInvite({ action: 'assign_role', ...input });
+}
+
+/** Platform admin: creates a workspace and invites its admin in one step. */
+export function createWorkspace(input: { name: string; slug: string; ownerEmail: string; ownerName?: string; codePrefix: string }) {
+  return invokeInvite({
+    action: 'create_workspace', workspaceName: input.name, slug: input.slug, codePrefix: input.codePrefix,
+    email: input.ownerEmail, name: input.ownerName,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -395,6 +423,8 @@ export interface RegistrationForm {
   departments: { id: string; name: string }[];
   churchLocations: { id: string; name: string }[];
   groups: { id: string; name: string; forUnbanded: boolean }[];
+  /** Admin-defined roles; empty means executives type their role. */
+  leadershipRoles: { id: string; name: string }[];
 }
 
 export async function getRegistrationForm(token: string) {
