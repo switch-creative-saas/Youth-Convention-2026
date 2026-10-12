@@ -1,12 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { BadgeCheck, CalendarDays, Check, Clock, Gift, Search, ShieldCheck, Ticket, Trophy, Utensils, XCircle } from 'lucide-react';
+import { BadgeCheck, CalendarDays, Check, Clock, Download, Gift, Printer, Search, ShieldCheck, Ticket, Trophy, Utensils, XCircle } from 'lucide-react';
 import { ExecutiveConventionTag, ConventionTag, type TagAttendee } from '@/components/ConventionTag';
 import { AttendeePortalLayout } from '@/components/attendee/AttendeePortalLayout';
 import { findAttendeeStatus, getAttendeeStatus, type AttendeeStatus } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 import { photoUrl } from '@/lib/supabase';
+import { downloadTagImage } from '@/lib/tagImage';
 import type { AccessItemType } from '@/types';
 
 function firstName(name: string) {
@@ -63,11 +64,9 @@ function TimelineItem({ complete, title, detail, icon: Icon }: { complete: boole
   );
 }
 
-function AttendeePass({ status, token }: { status: AttendeeStatus; token: string }) {
+function tagFromStatus(status: AttendeeStatus): TagAttendee {
   const isMember = status.kind === 'member';
-  const claim = (item: AccessItemType) => status.accessClaims[item];
-  const firstCheckIn = status.attendance[0];
-  const tag: TagAttendee = {
+  return {
     fullName: status.fullName,
     code: status.code,
     conventionGroup: status.groupName ?? (isMember ? 'Unassigned' : 'Executive'),
@@ -76,6 +75,36 @@ function AttendeePass({ status, token }: { status: AttendeeStatus; token: string
     departments: status.departments,
     profilePhoto: photoUrl(status.photoPath),
   };
+}
+
+function TagDownloadButton({ status, label = 'Download Tag (PNG)' }: { status: AttendeeStatus; label?: string }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const download = async () => {
+    setBusy(true); setError('');
+    try {
+      await downloadTagImage(tagFromStatus(status), status.event.name, status.kind);
+    } catch {
+      setError('Could not create the image. Use Print and choose "Save as PDF" instead.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <>
+      <button onClick={() => void download()} disabled={busy} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-portal-dark px-5 py-3 text-sm font-bold text-white disabled:opacity-70">
+        <Download className="h-4 w-4" /> {busy ? 'Preparing…' : label}
+      </button>
+      {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+    </>
+  );
+}
+
+function AttendeePass({ status, token }: { status: AttendeeStatus; token: string }) {
+  const isMember = status.kind === 'member';
+  const claim = (item: AccessItemType) => status.accessClaims[item];
+  const firstCheckIn = status.attendance[0];
+  const tag = tagFromStatus(status);
 
   return (
     <AttendeePortalLayout token={token} darkSurface>
@@ -154,7 +183,10 @@ function AttendeePass({ status, token }: { status: AttendeeStatus; token: string
           <div className="rounded-[28px] border border-portal-line bg-portal-surface p-5 shadow-xl dark:border-white/10">
             <h2 className="mb-4 text-xl font-black text-portal-ink dark:text-portal-ink">Official Tag</h2>
             {isMember ? <ConventionTag member={tag} eventName={status.event.name} /> : <ExecutiveConventionTag executive={tag} eventName={status.event.name} />}
-            <button onClick={() => window.print()} className="mt-4 w-full rounded-2xl bg-portal-dark px-5 py-3 text-sm font-bold text-white">Print Convention Tag</button>
+            <div className="mt-4 space-y-2">
+              <TagDownloadButton status={status} />
+              <button onClick={() => window.print()} className="flex w-full items-center justify-center gap-2 rounded-2xl border border-portal-line px-5 py-3 text-sm font-bold text-portal-ink"><Printer className="h-4 w-4" /> Print Convention Tag</button>
+            </div>
           </div>
         </div>
       </div>
@@ -171,11 +203,9 @@ function Info({ label, value }: { label: string; value: string }) {
   );
 }
 
-export function ConventionStatusPortal() {
-  const { token } = useParams();
-  // Tagged with the token it belongs to, so loading is derived instead of set inside the effect.
+/** Loads a status payload by token; loading is derived from which token the result belongs to. */
+function useAttendeeStatus(token: string | undefined) {
   const [result, setResult] = useState<{ token?: string; status: AttendeeStatus | null }>({ status: null });
-
   useEffect(() => {
     if (!token) return;
     let cancelled = false;
@@ -184,9 +214,56 @@ export function ConventionStatusPortal() {
       .catch(() => { if (!cancelled) setResult({ token, status: null }); });
     return () => { cancelled = true; };
   }, [token]);
+  return { loading: Boolean(token) && result.token !== token, status: result.token === token ? result.status : null };
+}
 
-  const loading = Boolean(token) && result.token !== token;
-  const status = result.token === token ? result.status : null;
+/** Target of the "Download my convention tag" button in the confirmation email. */
+export function ConventionTagDownloadPage() {
+  const { token } = useParams();
+  const { loading, status } = useAttendeeStatus(token);
+  const started = useRef(false);
+
+  useEffect(() => {
+    if (!status || started.current) return;
+    started.current = true;
+    void downloadTagImage(tagFromStatus(status), status.event.name, status.kind).catch(() => undefined);
+  }, [status]);
+
+  if (loading) {
+    return <AttendeePortalLayout token={token} compact><div className="grid place-items-center py-24"><div className="h-8 w-8 animate-spin rounded-full border-2 border-portal-line border-t-portal-accent" /></div></AttendeePortalLayout>;
+  }
+  if (!status || !token) {
+    return (
+      <AttendeePortalLayout compact>
+        <div className="max-w-md rounded-[28px] border border-white/10 bg-portal-surface p-8 text-center">
+          <XCircle className="mx-auto h-12 w-12 text-red-300" />
+          <h1 className="mt-5 text-2xl font-black">Tag not found</h1>
+          <p className="mt-3 text-sm leading-6 text-portal-label">This link is invalid or the registration was removed.</p>
+        </div>
+      </AttendeePortalLayout>
+    );
+  }
+  const tag = tagFromStatus(status);
+  return (
+    <AttendeePortalLayout token={token} compact>
+      <div className="mx-auto max-w-md">
+        <h1 className="text-2xl font-black text-portal-ink">Your convention tag</h1>
+        <p className="mt-2 text-sm text-portal-label">The download should start automatically. If it doesn't, use the button below.</p>
+        <div className="mt-6">
+          {status.kind === 'member' ? <ConventionTag member={tag} eventName={status.event.name} /> : <ExecutiveConventionTag executive={tag} eventName={status.event.name} />}
+        </div>
+        <div className="mt-5 space-y-2">
+          <TagDownloadButton status={status} label="Download again" />
+          <Link to={`/convention/status/${token}`} className="flex w-full items-center justify-center rounded-2xl border border-portal-line px-5 py-3 text-sm font-bold text-portal-ink">View my convention status</Link>
+        </div>
+      </div>
+    </AttendeePortalLayout>
+  );
+}
+
+export function ConventionStatusPortal() {
+  const { token } = useParams();
+  const { loading, status } = useAttendeeStatus(token);
 
   if (loading) {
     return <AttendeePortalLayout compact><div className="grid place-items-center py-24"><div className="h-8 w-8 animate-spin rounded-full border-2 border-portal-line border-t-portal-accent" /></div></AttendeePortalLayout>;

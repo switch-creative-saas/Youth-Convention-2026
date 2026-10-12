@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowRight, Check, ShieldAlert, Ticket, Upload } from 'lucide-react';
+import { ArrowRight, Check, Download, ShieldAlert, Ticket, Upload } from 'lucide-react';
 import { AuthHeader } from '@/components/auth/AuthExperience';
 import { useToast } from '@/contexts/ToastContext';
 import { sendRegistrationConfirmation } from '@/lib/registrationEmail';
+import { createTagImage, downloadTagImage } from '@/lib/tagImage';
+import type { TagAttendee } from '@/components/ConventionTag';
 import { getRegistrationForm, registerAttendee, type RegistrationForm } from '@/lib/api';
 import { compressPhoto, uploadRegistrationPhoto } from '@/lib/photos';
 import { statusUrl } from '@/lib/supabase';
@@ -19,7 +21,7 @@ export function ExecutiveRegistration() {
   const [submitting, setSubmitting] = useState(false);
   const [processingPhoto, setProcessingPhoto] = useState(false);
   const [photoBlob, setPhotoBlob] = useState<Blob | null>(null);
-  const [result, setResult] = useState<{ code: string; statusToken: string } | null>(null);
+  const [result, setResult] = useState<{ code: string; statusToken: string; tag: TagAttendee } | null>(null);
   const [form, setForm] = useState({
     fullName: '',
     leadershipRole: '',
@@ -84,30 +86,24 @@ export function ExecutiveRegistration() {
         address: form.address.trim(),
         photoPath,
       });
-      setResult({ code: registered.code, statusToken: registered.statusToken });
+      const tag: TagAttendee = {
+        fullName: form.fullName.trim(),
+        code: registered.code,
+        conventionGroup: 'Executive',
+        fellowshipBand: formData.bands.find(item => item.id === form.bandId)?.name ?? 'None',
+        leadershipRole: form.leadershipRole.trim(),
+        departments: formData.departments.filter(item => item.id === form.departmentId).map(item => item.name),
+        profilePhoto: form.profilePhoto,
+      };
+      setResult({ code: registered.code, statusToken: registered.statusToken, tag });
       addToast({ type: 'success', title: 'Executive registration complete!' });
 
       try {
-        const sent = await sendRegistrationConfirmation({
-          type: 'executive',
-          to: email,
-          subject: `Your ${formData.event.name} registration is confirmed`,
-          statusUrl: statusUrl(registered.statusToken),
-          tagUrl: statusUrl(registered.statusToken),
-          executive: {
-            id: registered.code,
-            fullName: form.fullName.trim(),
-            email,
-            phoneNumber: form.phoneNumber.trim(),
-            leadershipRole: form.leadershipRole,
-            department: formData.departments.find(item => item.id === form.departmentId)?.name ?? '',
-            fellowshipBand: formData.bands.find(item => item.id === form.bandId)?.name ?? 'None',
-            registeredAt: registered.registeredAt,
-          },
-        });
-        if (sent) addToast({ type: 'success', title: 'Confirmation email sent', description: `Your status link was sent to ${email}.` });
+        const tagPng = await createTagImage(tag, formData.event.name, 'executive');
+        const sent = await sendRegistrationConfirmation(registered.statusToken, { tagPng });
+        if (sent.status === 'sent') addToast({ type: 'success', title: 'Confirmation email sent', description: `Your convention details and tag were sent to ${email}.` });
       } catch (emailError) {
-        addToast({ type: 'warning', title: 'Email not sent automatically', description: emailError instanceof Error ? emailError.message : undefined, duration: 7000 });
+        addToast({ type: 'warning', title: 'Confirmation email not sent', description: `${emailError instanceof Error ? emailError.message : 'Unable to send the email.'} Download your tag below.`, duration: 7000 });
       }
     } catch (error) {
       addToast({ type: 'error', title: 'Unable to complete registration', description: error instanceof Error ? error.message : undefined });
@@ -203,9 +199,14 @@ export function ExecutiveRegistration() {
               <div className="mt-4 inline-block font-mono font-bold text-lg text-portal-ink bg-portal-surface px-6 py-3 rounded-xl">{result.code}</div>
               <p className="text-sm text-portal-label mt-3">Your Executive ID</p>
               <p className="mx-auto mt-4 max-w-sm text-xs leading-5 text-portal-label">Keep your status link to view and print your convention tag: <span className="break-all text-portal-ink">{statusUrl(result.statusToken)}</span></p>
-              <motion.button onClick={() => navigate(`/convention/status/${result.statusToken}`)} className="mt-6 gradient-btn flex items-center gap-2 px-6 py-2.5 mx-auto" whileTap={{ scale: 0.97 }}>
-                <Ticket className="w-4 h-4" /> View my convention status
-              </motion.button>
+              <div className="mt-6 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
+                <motion.button onClick={() => void downloadTagImage(result.tag, formData?.event.name ?? 'Youth convention', 'executive').catch(() => addToast({ type: 'error', title: 'Could not create the tag image' }))} className="gradient-btn flex items-center gap-2 px-6 py-2.5" whileTap={{ scale: 0.97 }}>
+                  <Download className="w-4 h-4" /> Download my tag
+                </motion.button>
+                <motion.button onClick={() => navigate(`/convention/status/${result.statusToken}`)} className="flex items-center gap-2 rounded-full border border-portal-line px-6 py-2.5 text-sm font-semibold text-portal-ink" whileTap={{ scale: 0.97 }}>
+                  <Ticket className="w-4 h-4" /> View my convention status
+                </motion.button>
+              </div>
             </motion.div>
           )}
         </div>

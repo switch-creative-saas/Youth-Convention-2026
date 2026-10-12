@@ -21,9 +21,10 @@ export default defineConfig([
     },
   },
   {
-    files: ['api/**/*.ts'],
+    // Supabase Edge Functions run on Deno.
+    files: ['supabase/functions/**/*.ts'],
     languageOptions: {
-      globals: globals.node,
+      globals: { Deno: 'readonly' },
     },
   },
 ])

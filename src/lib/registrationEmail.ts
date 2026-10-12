@@ -1,69 +1,25 @@
-type RegistrationAttachment = {
-  filename: string;
-  contentType: string;
-  dataUrl: string;
-};
+import { supabase } from '@/lib/supabase';
 
-type MemberConfirmationPayload = {
-  type: 'member';
-  to: string;
-  subject: string;
-  member: {
-    id: string;
-    fullName: string;
-    email: string;
-    phoneNumber: string;
-    fellowshipBand: string;
-    conventionGroup: string;
-    departments: string[];
-    registeredAt: string;
-  };
-  attachment?: RegistrationAttachment;
-  statusUrl?: string;
-  tagUrl?: string;
-};
+export type ConfirmationResult = { status: 'sent' | 'already_sent'; id?: string; sentAt?: string };
 
-type ExecutiveConfirmationPayload = {
-  type: 'executive';
-  to: string;
-  subject: string;
-  executive: {
-    id: string;
-    fullName: string;
-    email: string;
-    phoneNumber: string;
-    leadershipRole: string;
-    department: string;
-    fellowshipBand: string;
-    registeredAt: string;
-  };
-  statusUrl?: string;
-  tagUrl?: string;
-};
-
-export type RegistrationConfirmationPayload = MemberConfirmationPayload | ExecutiveConfirmationPayload;
-
-export async function sendRegistrationConfirmation(payload: RegistrationConfirmationPayload) {
-  const endpoint = import.meta.env.VITE_CONFIRMATION_EMAIL_ENDPOINT as string | undefined;
-
-  // Email is optional: without an endpoint the attendee still gets their tag and status link on screen.
-  if (!endpoint) return false;
-
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+/**
+ * Asks the send-registration-email Edge Function to email the attendee their confirmation.
+ * The server looks up the recipient and details from the status token, so only the token
+ * (and optionally the rendered tag PNG to attach) is sent from the browser.
+ * `force` resends an already-sent email and requires a signed-in admin or registration desk user.
+ */
+export async function sendRegistrationConfirmation(statusToken: string, options: { tagPng?: string; force?: boolean } = {}) {
+  const { data, error } = await supabase.functions.invoke<ConfirmationResult>('send-registration-email', {
+    body: { statusToken, tagPng: options.tagPng, force: options.force ?? false },
   });
-
-  if (!response.ok) {
-    let message = `Confirmation email failed with status ${response.status}.`;
-    try {
-      const body = await response.json() as { error?: string };
-      if (body.error) message = body.error;
-    } catch {
-      // Keep the status-based message if the endpoint returns non-JSON.
+  if (error) {
+    const context = (error as { context?: Response }).context;
+    let message = error.message;
+    if (context && typeof context.json === 'function') {
+      try { message = ((await context.json()) as { error?: string }).error ?? message; } catch { /* keep default */ }
     }
     throw new Error(message);
   }
-  return true;
+  if (!data) throw new Error('No response from the email service.');
+  return data;
 }
