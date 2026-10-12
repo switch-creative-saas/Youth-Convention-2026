@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar } from 'recharts';
 import { AdminLayout } from '@/components/AdminLayout';
@@ -5,26 +6,37 @@ import { useAppData } from '@/contexts/AppDataContext';
 import { StatCard } from '@/components/StatCard';
 import { Users, Shield, UserCheck, Activity } from 'lucide-react';
 import { portalChartAxis, portalChartPalette, portalChartTooltip } from '@/components/ui-kit/chartTheme';
+import { seriesColor } from '@/lib/format';
 
 export function AdminAnalytics() {
-  const { members, executives, attendance, firstTimers } = useAppData();
+  const { members, executives, attendance, firstTimers, bands, churchGroups, currentEvent } = useAppData();
 
-  const presentCount = attendance.filter(a => a.status === 'present').length;
+  const checkedIn = useMemo(() => new Set(attendance.map(record => record.attendeeId)).size, [attendance]);
   const maleCount = members.filter(m => m.gender === 'Male').length;
   const femaleCount = members.filter(m => m.gender === 'Female').length;
   const ftTotal = firstTimers.length;
   const ftWantMembership = firstTimers.filter(ft => ft.wantsPermanentMembership).length;
-  const ftFollowedUp = firstTimers.filter(ft => ft.followedUp).length;
+  const ftFollowedUp = firstTimers.filter(ft => ft.firstTimerFollowedUp).length;
+  const percent = (value: number) => (ftTotal ? Math.round((value / ftTotal) * 100) : 0);
 
-  const attendanceTrend = [
-    { day: 'Mon', count: 32 },
-    { day: 'Tue', count: 45 },
-    { day: 'Wed', count: 38 },
-    { day: 'Thu', count: 52 },
-    { day: 'Fri', count: 48 },
-    { day: 'Sat', count: 65 },
-    { day: 'Sun', count: 58 },
-  ];
+  // Check-ins per day across the convention dates (or the last 7 days with activity before it starts).
+  const attendanceTrend = useMemo(() => {
+    const counts = new Map<string, number>();
+    attendance.forEach(record => counts.set(record.attendanceDate, (counts.get(record.attendanceDate) ?? 0) + 1));
+    const days: string[] = [];
+    if (currentEvent) {
+      const start = new Date(`${currentEvent.startDate}T00:00:00`);
+      const end = new Date(`${currentEvent.endDate}T00:00:00`);
+      for (let day = new Date(start); day <= end && days.length < 31; day.setDate(day.getDate() + 1)) {
+        days.push(day.toISOString().slice(0, 10));
+      }
+    }
+    const outside = [...counts.keys()].filter(day => !days.includes(day));
+    return [...new Set([...outside, ...days])].sort().slice(-14).map(day => ({
+      day: new Date(`${day}T00:00:00`).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' }),
+      count: counts.get(day) ?? 0,
+    }));
+  }, [attendance, currentEvent]);
 
   const genderData = [
     { name: 'Male', value: maleCount, color: portalChartPalette[1] },
@@ -32,11 +44,8 @@ export function AdminAnalytics() {
   ];
 
   const bandData = [
-    { name: 'Peniel', value: members.filter(m => m.fellowshipBand === 'Peniel').length, fill: portalChartPalette[1] },
-    { name: 'Judah', value: members.filter(m => m.fellowshipBand === 'Judah').length, fill: portalChartPalette[0] },
-    { name: 'Zion', value: members.filter(m => m.fellowshipBand === 'Zion').length, fill: portalChartPalette[2] },
-    { name: 'Ephraim', value: members.filter(m => m.fellowshipBand === 'Ephraim').length, fill: portalChartPalette[3] },
-    { name: 'None', value: members.filter(m => m.fellowshipBand === 'None').length, fill: portalChartPalette[2] },
+    ...bands.map((band, index) => ({ name: band.name, value: members.filter(m => m.bandId === band.id).length, fill: seriesColor(index, band.color) })),
+    { name: 'None', value: members.filter(m => !m.bandId).length, fill: 'var(--muted)' },
   ];
 
   const deptCounts: Record<string, number> = {};
@@ -46,13 +55,9 @@ export function AdminAnalytics() {
     .slice(0, 10)
     .map(([name, value]) => ({ name, value, fill: 'var(--dark-card)' }));
 
-  const groupData = [
-    { name: 'Group A', value: members.filter(m => m.conventionGroup === 'Group A').length, color: portalChartPalette[1] },
-    { name: 'Group B', value: members.filter(m => m.conventionGroup === 'Group B').length, color: portalChartPalette[0] },
-    { name: 'Group C', value: members.filter(m => m.conventionGroup === 'Group C').length, color: portalChartPalette[2] },
-    { name: 'Group D', value: members.filter(m => m.conventionGroup === 'Group D').length, color: portalChartPalette[3] },
-    { name: 'Group E', value: members.filter(m => m.conventionGroup === 'Group E').length, color: portalChartPalette[2] },
-  ];
+  const groupData = churchGroups
+    .map((group, index) => ({ name: group.name, value: members.filter(m => m.groupId === group.id).length, color: seriesColor(index, group.color) }))
+    .filter(group => group.value > 0);
 
   return (
     <AdminLayout
@@ -64,7 +69,7 @@ export function AdminAnalytics() {
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6 mb-8">
         <StatCard icon={Users} iconColor="var(--accent)" iconBg="rgba(138,138,133,0.1)" label="Total Youth Members" value={members.length} delay={0} />
         <StatCard icon={Shield} iconColor="var(--dark-card)" iconBg="rgba(138,138,133,0.1)" label="Total Executives" value={executives.length} delay={0.1} />
-        <StatCard icon={UserCheck} iconColor="var(--label-ink)" iconBg="rgba(138,138,133,0.1)" label="Convention Attendees" value={presentCount} delay={0.2} />
+        <StatCard icon={UserCheck} iconColor="var(--label-ink)" iconBg="rgba(138,138,133,0.1)" label="Checked-in Attendees" value={checkedIn} delay={0.2} />
         <StatCard icon={Activity} iconColor="var(--accent)" iconBg="rgba(138,138,133,0.1)" label="First Timers" value={ftTotal} delay={0.3} />
       </div>
 
@@ -75,7 +80,7 @@ export function AdminAnalytics() {
           className="portal-card p-6 lg:col-span-2"
           initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
         >
-          <h3 className="font-display font-semibold text-lg text-portal-ink dark:text-white mb-4">Attendance Trends (Last 7 Days)</h3>
+          <h3 className="font-display font-semibold text-lg text-portal-ink dark:text-white mb-4">Check-ins per Day</h3>
           <div className="h-[280px]">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={attendanceTrend}>
@@ -134,7 +139,7 @@ export function AdminAnalytics() {
                 <XAxis dataKey="name" tick={portalChartAxis} axisLine={false} tickLine={false} />
                 <YAxis tick={portalChartAxis} axisLine={false} tickLine={false} />
                 <Tooltip contentStyle={portalChartTooltip} />
-                <Bar dataKey="value" radius={[8, 8, 0, 0]} />
+                <Bar dataKey="value" radius={[8, 8, 0, 0]}>{bandData.map(entry => <Cell key={entry.name} fill={entry.fill} />)}</Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -200,8 +205,8 @@ export function AdminAnalytics() {
           <div className="space-y-5">
             {[
               { label: 'Total First Timers', value: ftTotal, max: ftTotal },
-              { label: 'Wants Membership', value: ftWantMembership, max: ftTotal, pct: Math.round((ftWantMembership / ftTotal) * 100) },
-              { label: 'Followed Up', value: ftFollowedUp, max: ftTotal, pct: Math.round((ftFollowedUp / ftTotal) * 100) },
+              { label: 'Wants Membership', value: ftWantMembership, max: ftTotal, pct: percent(ftWantMembership) },
+              { label: 'Followed Up', value: ftFollowedUp, max: ftTotal, pct: percent(ftFollowedUp) },
             ].map(item => (
               <div key={item.label}>
                 <div className="flex items-center justify-between mb-2">
@@ -215,7 +220,7 @@ export function AdminAnalytics() {
                   <motion.div
                     className="h-full rounded-full bg-portal-accent"
                     initial={{ width: 0 }}
-                    animate={{ width: `${(item.value / item.max) * 100}%` }}
+                    animate={{ width: `${item.max ? (item.value / item.max) * 100 : 0}%` }}
                     transition={{ duration: 1, delay: 0.5 }}
                   />
                 </div>

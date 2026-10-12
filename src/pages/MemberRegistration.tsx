@@ -15,15 +15,16 @@ import {
 } from 'lucide-react';
 import { AuthHeader } from '@/components/auth/AuthExperience';
 import youthLogo from '@/assets/youth-logo.png';
-import { ConventionTag } from '@/components/ConventionTag';
-import { useAppData } from '@/contexts/AppDataContext';
+import { ConventionTag, type TagAttendee } from '@/components/ConventionTag';
+import { tagNumber } from '@/lib/format';
 import { useToast } from '@/contexts/ToastContext';
 import { sendRegistrationConfirmation } from '@/lib/registrationEmail';
-import { bandColors as BAND_COLORS } from '@/components/ui-kit/palette';
-import type { Department, FellowshipBand, Member } from '@/types';
+import { getRegistrationForm, registerAttendee, type RegistrationForm } from '@/lib/api';
+import { compressPhoto, uploadRegistrationPhoto } from '@/lib/photos';
+import { statusUrl } from '@/lib/supabase';
 
 const steps = ['Personal Information', 'Church Information', 'Fellowship', 'Confirmation', 'Complete'];
-const GROUPS = ['Group A', 'Group B', 'Group C', 'Group D'];
+const NONE = 'none';
 
 type FormState = {
   fullName: string;
@@ -34,12 +35,20 @@ type FormState = {
   address: string;
   occupation: string;
   emergencyContact: string;
-  churchBranch: string;
+  churchLocationId: string;
   profilePhoto: string;
-  fellowshipBand: FellowshipBand | '';
-  departments: Department[];
+  bandId: string;
+  departmentIds: string[];
+  noDepartment: boolean;
   isFirstTimer: boolean | null;
   wantsPermanentMembership: boolean | null;
+};
+
+type RegisteredMember = TagAttendee & {
+  statusToken: string;
+  registeredAt: string;
+  email: string;
+  phoneNumber: string;
 };
 
 const initialForm: FormState = {
@@ -51,10 +60,11 @@ const initialForm: FormState = {
   address: '',
   occupation: '',
   emergencyContact: '',
-  churchBranch: '',
+  churchLocationId: '',
   profilePhoto: '',
-  fellowshipBand: '',
-  departments: [],
+  bandId: '',
+  departmentIds: [],
+  noDepartment: false,
   isFirstTimer: null,
   wantsPermanentMembership: null,
 };
@@ -140,7 +150,7 @@ function setFittedFont(context: CanvasRenderingContext2D, weight: number, size: 
   } while (nextSize >= minSize);
 }
 
-async function createTagImage(member: Member) {
+async function createTagImage(member: TagAttendee, eventName: string) {
   const canvas = document.createElement('canvas');
   canvas.width = 1184;
   canvas.height = 2008;
@@ -236,8 +246,8 @@ async function createTagImage(member: Member) {
   context.fillStyle = '#0b4a43';
   context.textAlign = 'left';
   context.textBaseline = 'middle';
-  setFittedFont(context, 600, 44, '"Brush Script MT", "Segoe Script", cursive', 'Youth convention 2026', 370, 34);
-  context.fillText('Youth convention 2026', 212, 110);
+  setFittedFont(context, 600, 44, '"Brush Script MT", "Segoe Script", cursive', eventName, 370, 26);
+  context.fillText(eventName, 212, 110);
   context.restore();
 
   drawRing(1078, -34, 108);
@@ -310,7 +320,7 @@ async function createTagImage(member: Member) {
   context.fill();
   context.fillStyle = '#ffffff';
   context.font = '800 34px Inter, Arial, sans-serif';
-  context.fillText(`ID : ${member.id.replace(/^MOSYF-2026-/, '')}`, 590, 1681);
+  context.fillText(`ID : ${tagNumber(member.code)}`, 590, 1681);
 
   context.strokeStyle = '#0b4a43';
   context.lineWidth = 5;
@@ -329,22 +339,36 @@ async function createTagImage(member: Member) {
 export function MemberRegistration() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { addMember, members, bands, departments, churchLocations, validateGeneratedLink, recordGeneratedLinkUse, getStatusUrl } = useAppData();
   const { addToast } = useToast();
   const token = new URLSearchParams(location.search).get('token');
-  const registrationLink = validateGeneratedLink('member', token);
+  const [formData, setFormData] = useState<RegistrationForm | null>(null);
+  const [formState, setFormState] = useState<'loading' | 'ready' | 'invalid'>(token ? 'loading' : 'invalid');
   const [step, setStep] = useState(0);
   const [form, setForm] = useState<FormState>(initialForm);
+  const [photoBlob, setPhotoBlob] = useState<Blob | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
-  const [registeredMember, setRegisteredMember] = useState<Member | null>(null);
+  const [processingPhoto, setProcessingPhoto] = useState(false);
+  const [registeredMember, setRegisteredMember] = useState<RegisteredMember | null>(null);
   const [emailingMemberId, setEmailingMemberId] = useState('');
   const tagRef = useRef<HTMLDivElement>(null);
 
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    getRegistrationForm(token)
+      .then(data => {
+        if (cancelled) return;
+        if (!data || data.kind !== 'member') { setFormState('invalid'); return; }
+        setFormData(data);
+        setFormState('ready');
+      })
+      .catch(() => { if (!cancelled) setFormState('invalid'); });
+    return () => { cancelled = true; };
+  }, [token]);
+
+  const eventName = formData?.event.name ?? 'Youth convention';
   const normalizedEmail = form.email.trim().toLowerCase();
-  const emailExists = normalizedEmail
-    ? members.some(member => member.email.trim().toLowerCase() === normalizedEmail)
-    : false;
 
   const update = <K extends keyof FormState>(field: K, value: FormState[K]) => {
     setForm(prev => ({ ...prev, [field]: value }));
@@ -355,45 +379,31 @@ export function MemberRegistration() {
     });
   };
 
-  const handlePhoto = (file?: File) => {
+  const handlePhoto = async (file?: File) => {
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const image = new Image();
-      image.onload = () => {
-        const maxSize = 720;
-        const ratio = Math.min(1, maxSize / Math.max(image.width, image.height));
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.round(image.width * ratio);
-        canvas.height = Math.round(image.height * ratio);
-        const context = canvas.getContext('2d');
-
-        if (!context) {
-          update('profilePhoto', String(reader.result));
-          return;
-        }
-
-        context.drawImage(image, 0, 0, canvas.width, canvas.height);
-        update('profilePhoto', canvas.toDataURL('image/jpeg', 0.82));
-      };
-      image.src = String(reader.result);
-    };
-    reader.readAsDataURL(file);
+    setProcessingPhoto(true);
+    try {
+      const { blob, dataUrl } = await compressPhoto(file);
+      setPhotoBlob(blob);
+      update('profilePhoto', dataUrl);
+    } catch (error) {
+      setErrors(prev => ({ ...prev, profilePhoto: error instanceof Error ? error.message : 'Unable to use this photo.' }));
+    } finally {
+      setProcessingPhoto(false);
+    }
   };
 
-  const toggleDepartment = (department: Department) => {
+  const toggleDepartment = (departmentId: string) => {
     setForm(prev => {
-      if (department === 'None') {
-        return { ...prev, departments: prev.departments.includes('None') ? [] : ['None'] };
+      if (departmentId === NONE) {
+        return { ...prev, noDepartment: !prev.noDepartment, departmentIds: [] };
       }
-
-      const withoutNone = prev.departments.filter(item => item !== 'None');
-      const departments = withoutNone.includes(department)
-        ? withoutNone.filter(item => item !== department)
-        : [...withoutNone, department];
-
-      return { ...prev, departments };
+      const departmentIds = prev.departmentIds.includes(departmentId)
+        ? prev.departmentIds.filter(item => item !== departmentId)
+        : [...prev.departmentIds, departmentId];
+      return { ...prev, departmentIds, noDepartment: false };
     });
+    setErrors(prev => { const next = { ...prev }; delete next.departments; return next; });
   };
 
   const validateStep = () => {
@@ -405,7 +415,6 @@ export function MemberRegistration() {
       if (!form.phoneNumber.trim()) nextErrors.phoneNumber = 'Phone number is required.';
       if (!form.email.trim()) nextErrors.email = 'Email address is required.';
       if (form.email && !/^\S+@\S+\.\S+$/.test(form.email)) nextErrors.email = 'Enter a valid email address.';
-      if (emailExists) nextErrors.email = 'This email has already been used to register.';
       if (!form.gender) nextErrors.gender = 'Select gender.';
       if (!form.dateOfBirth) nextErrors.dateOfBirth = 'Date of birth is required.';
       if (!form.address.trim()) nextErrors.address = 'Address is required.';
@@ -414,9 +423,9 @@ export function MemberRegistration() {
     }
 
     if (step === 1) {
-      if (!form.fellowshipBand) nextErrors.fellowshipBand = 'Select a fellowship band.';
-      if (!form.churchBranch) nextErrors.churchBranch = 'Select a church branch.';
-      if (form.departments.length === 0) nextErrors.departments = 'Select at least one department or None.';
+      if (!form.bandId) nextErrors.fellowshipBand = 'Select a fellowship band.';
+      if (formData?.churchLocations.length && !form.churchLocationId) nextErrors.churchBranch = 'Select a church branch.';
+      if (formData?.departments.length && form.departmentIds.length === 0 && !form.noDepartment) nextErrors.departments = 'Select at least one department or None.';
     }
 
     if (step === 2) {
@@ -437,41 +446,50 @@ export function MemberRegistration() {
   const previous = () => setStep(current => Math.max(current - 1, 0));
 
   const submit = async () => {
-    if (!registrationLink) {
-      addToast({ type: 'error', title: 'Invalid registration link', description: "This registration link isn't valid." });
-      return;
-    }
-
+    if (!token || !formData) return;
     if (!validateStep()) return;
     setSubmitting(true);
 
     try {
-      const member = addMember({
+      const photoPath = photoBlob ? await uploadRegistrationPhoto(formData.photoPathPrefix, photoBlob) : null;
+      const bandId = form.bandId === NONE ? null : form.bandId;
+      const result = await registerAttendee(token, {
         fullName: form.fullName.trim(),
         phoneNumber: form.phoneNumber.trim(),
         email: normalizedEmail,
-        gender: form.gender as 'Male' | 'Female',
+        gender: form.gender,
         dateOfBirth: form.dateOfBirth,
         address: form.address.trim(),
         occupation: form.occupation.trim(),
         emergencyContact: form.emergencyContact.trim(),
-        churchBranch: form.churchBranch,
-        profilePhoto: form.profilePhoto,
-        fellowshipBand: form.fellowshipBand as FellowshipBand,
-        departments: form.departments.length ? form.departments : ['None'],
+        churchLocationId: form.churchLocationId || null,
+        bandId,
+        departmentIds: form.departmentIds,
         isFirstTimer: form.isFirstTimer === true,
         wantsPermanentMembership: form.isFirstTimer ? form.wantsPermanentMembership : null,
+        photoPath,
       });
 
+      const member: RegisteredMember = {
+        code: result.code,
+        statusToken: result.statusToken,
+        registeredAt: result.registeredAt,
+        fullName: form.fullName.trim(),
+        email: normalizedEmail,
+        phoneNumber: form.phoneNumber.trim(),
+        conventionGroup: result.groupName ?? 'Unassigned',
+        fellowshipBand: formData.bands.find(band => band.id === bandId)?.name ?? 'None',
+        departments: formData.departments.filter(department => form.departmentIds.includes(department.id)).map(department => department.name),
+        leadershipRole: '',
+        profilePhoto: form.profilePhoto,
+      };
       setRegisteredMember(member);
-      recordGeneratedLinkUse(registrationLink.id);
-      setEmailingMemberId(member.id);
+      setEmailingMemberId(member.code);
       setStep(3);
-      addToast({ type: 'success', title: 'Registration complete', description: `${member.id} has been generated. Preparing confirmation email...` });
+      addToast({ type: 'success', title: 'Registration complete', description: `${member.code} has been generated.` });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Registration failed.';
-      setErrors({ email: message });
-      setStep(0);
+      if (/email/i.test(message)) { setErrors({ email: message }); setStep(0); }
       addToast({ type: 'error', title: 'Registration failed', description: message });
     } finally {
       setSubmitting(false);
@@ -482,10 +500,10 @@ export function MemberRegistration() {
     if (!tagRef.current || !registeredMember) return;
 
     try {
-      const imageUrl = await createTagImage(registeredMember);
+      const imageUrl = await createTagImage(registeredMember, eventName);
       const anchor = document.createElement('a');
       anchor.href = imageUrl;
-      anchor.download = `${registeredMember.id}-convention-tag.png`;
+      anchor.download = `${registeredMember.code}-convention-tag.png`;
       anchor.click();
     } catch (error) {
       addToast({
@@ -497,24 +515,24 @@ export function MemberRegistration() {
   };
 
   useEffect(() => {
-    if (!registeredMember || emailingMemberId !== registeredMember.id) return;
+    if (!registeredMember || emailingMemberId !== registeredMember.code) return;
 
     let cancelled = false;
 
     const sendEmail = async () => {
       try {
         await new Promise(resolve => window.requestAnimationFrame(resolve));
-        const imageUrl = await createTagImage(registeredMember);
+        const imageUrl = await createTagImage(registeredMember, eventName);
         if (cancelled) return;
 
-        await sendRegistrationConfirmation({
+        const sent = await sendRegistrationConfirmation({
           type: 'member',
           to: registeredMember.email,
-          subject: 'Your MOSYF Convention Registration is Confirmed',
-          statusUrl: getStatusUrl(registeredMember),
-          tagUrl: getStatusUrl(registeredMember),
+          subject: `Your ${eventName} registration is confirmed`,
+          statusUrl: statusUrl(registeredMember.statusToken),
+          tagUrl: statusUrl(registeredMember.statusToken),
           member: {
-            id: registeredMember.id,
+            id: registeredMember.code,
             fullName: registeredMember.fullName,
             email: registeredMember.email,
             phoneNumber: registeredMember.phoneNumber,
@@ -524,18 +542,14 @@ export function MemberRegistration() {
             registeredAt: registeredMember.registeredAt,
           },
           attachment: {
-            filename: `${registeredMember.id}-convention-tag.png`,
+            filename: `${registeredMember.code}-convention-tag.png`,
             contentType: 'image/png',
             dataUrl: imageUrl,
           },
         });
         if (!cancelled) {
           setEmailingMemberId('');
-          addToast({
-            type: 'success',
-            title: 'Confirmation email sent',
-            description: `The convention tag was sent to ${registeredMember.email}.`,
-          });
+          if (sent) addToast({ type: 'success', title: 'Confirmation email sent', description: `The convention tag was sent to ${registeredMember.email}.` });
         }
       } catch (error) {
         if (!cancelled) {
@@ -555,14 +569,22 @@ export function MemberRegistration() {
     return () => {
       cancelled = true;
     };
-  }, [addToast, emailingMemberId, registeredMember]);
+  }, [addToast, emailingMemberId, registeredMember, eventName]);
 
   const printTag = () => window.print();
 
   const inputClass = (field: keyof FormState) =>
     `glass-input w-full ${errors[field] ? 'border-red-500 ring-[3px] ring-red-500/15' : ''}`;
 
-  if (!registrationLink) {
+  if (formState === 'loading') {
+    return (
+      <main className="grid min-h-screen place-items-center portal-theme portal-canvas">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-portal-line border-t-portal-accent" />
+      </main>
+    );
+  }
+
+  if (formState === 'invalid' || !formData) {
     return (
       <main className="min-h-screen portal-theme portal-canvas">
         <AuthHeader eyebrow="Member Onboarding" homeHref="/convention/status" hireDeveloperHref="/convention/hire" />
@@ -588,9 +610,9 @@ export function MemberRegistration() {
 
   return (
     <main className="min-h-screen portal-theme portal-canvas">
-      <AuthHeader eyebrow="Member Onboarding" homeHref="/convention/status" hireDeveloperHref={registeredMember?.statusToken ? `/convention/status/${registeredMember.statusToken}/hire` : '/convention/hire'} />
+      <AuthHeader eyebrow="Member Onboarding" homeHref="/convention/status" hireDeveloperHref={registeredMember ? `/convention/status/${registeredMember.statusToken}/hire` : '/convention/hire'} />
       <section className="no-print min-h-screen px-4 py-24 sm:px-6 lg:px-8">
-        <div className="mx-auto grid max-w-7xl gap-6 lg:grid-cols-[360px_1fr]">
+        <div className="mx-auto grid max-w-7xl gap-6 lg:grid-cols-[360px_minmax(0,1fr)]">
           <aside className="relative overflow-hidden rounded-[30px] border border-white/10 bg-portal-dark p-5 text-white shadow-surface sm:p-6">
             <div className="absolute inset-0 bg-portal-dark" />
             <div className="absolute inset-0 opacity-[0.16] [background-image:linear-gradient(rgba(255,255,255,0.08)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.08)_1px,transparent_1px)] [background-size:42px_42px]" />
@@ -598,7 +620,7 @@ export function MemberRegistration() {
             <div className="flex items-center gap-3">
               <img src={youthLogo} alt="MOSYF logo" className="h-12 w-12 rounded-xl bg-white object-contain p-1" />
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/55">MOSYF 2026</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/55">{eventName}</p>
                 <h1 className="text-2xl font-black leading-tight">Member Onboarding</h1>
               </div>
             </div>
@@ -615,18 +637,21 @@ export function MemberRegistration() {
             </div>
 
             <div className="mt-6 rounded-2xl border border-white/12 bg-white/[0.07] p-4 lg:mt-10">
-              <p className="text-sm text-white/70">Member IDs are generated as searchable QR-linked records for biometric check-in and convention attendance.</p>
-              <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
-                {GROUPS.map(group => (
-                  <span key={group} className="rounded-lg bg-white/10 px-3 py-2">{group}</span>
-                ))}
-                <span className="rounded-lg bg-white px-3 py-2 font-semibold text-portal-accent-ink">Group E for None</span>
-              </div>
+              <p className="text-sm text-white/70">Your member ID is generated when you register and is used for fingerprint check-in at the convention. You are placed in a group automatically.</p>
+              {formData.groups.length > 0 && (
+                <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
+                  {formData.groups.map(group => (
+                    <span key={group.id} className={group.forUnbanded ? 'rounded-lg bg-white px-3 py-2 font-semibold text-portal-accent-ink' : 'rounded-lg bg-white/10 px-3 py-2'}>
+                      {group.name}{group.forUnbanded ? ' (no band)' : ''}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
             </div>
           </aside>
 
-          <div className="portal-card rounded-[30px] p-4 sm:p-6 lg:p-8">
+          <div className="portal-card min-w-0 rounded-[30px] p-4 sm:p-6 lg:p-8">
             <AnimatePresence mode="wait">
               {step === 0 && (
                 <motion.div key="identity" initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -24 }}>
@@ -635,7 +660,9 @@ export function MemberRegistration() {
                   <div className="grid gap-5 lg:grid-cols-[240px_1fr]">
                     <div>
                       <label className={`flex aspect-[3/4] cursor-pointer flex-col items-center justify-center overflow-hidden rounded-[24px] border-2 border-dashed bg-portal-from text-center transition ${errors.profilePhoto ? 'border-red-400' : 'border-portal-line hover:border-portal-accent'}`}>
-                        {form.profilePhoto ? (
+                        {processingPhoto ? (
+                          <span className="h-8 w-8 animate-spin rounded-full border-2 border-portal-line border-t-portal-accent" />
+                        ) : form.profilePhoto ? (
                           <img src={form.profilePhoto} alt="Uploaded member" className="h-full w-full object-cover" />
                         ) : (
                           <span className="flex flex-col items-center px-6 text-sm text-portal-label">
@@ -643,7 +670,7 @@ export function MemberRegistration() {
                             Upload a clear photo
                           </span>
                         )}
-                        <input type="file" accept="image/*" className="hidden" onChange={event => handlePhoto(event.target.files?.[0])} />
+                        <input type="file" accept="image/*" className="hidden" onChange={event => void handlePhoto(event.target.files?.[0])} />
                       </label>
                       {errors.profilePhoto && <ErrorText>{errors.profilePhoto}</ErrorText>}
                     </div>
@@ -688,13 +715,13 @@ export function MemberRegistration() {
 
                   <Field label="Which fellowship band do you belong to?" error={errors.fellowshipBand}>
                     <div className="grid gap-3 sm:grid-cols-5">
-                      {[...bands.filter(band => band.active).map(band => band.name), 'None'].map(band => (
+                      {[...formData.bands, { id: NONE, name: 'None', color: null }].map(band => (
                         <GlassChoice
-                          key={band}
-                          label={band}
-                          selected={form.fellowshipBand === band}
-                          color={BAND_COLORS[band]}
-                          onClick={() => update('fellowshipBand', band as FellowshipBand)}
+                          key={band.id}
+                          label={band.name}
+                          selected={form.bandId === band.id}
+                          color={band.color || 'var(--accent)'}
+                          onClick={() => update('bandId', band.id)}
                         />
                       ))}
                     </div>
@@ -702,9 +729,9 @@ export function MemberRegistration() {
 
                   <div className="mt-6">
                     <Field label="Church Branch" error={errors.churchBranch}>
-                      <select className={inputClass('churchBranch')} value={form.churchBranch} onChange={event => update('churchBranch', event.target.value)}>
+                      <select className={inputClass('churchLocationId')} value={form.churchLocationId} onChange={event => { update('churchLocationId', event.target.value); setErrors(prev => { const next = { ...prev }; delete next.churchBranch; return next; }); }}>
                         <option value="">Select a church location</option>
-                        {churchLocations.filter(location => location.active).map(location => <option key={location.id} value={location.name}>{location.name}</option>)}
+                        {formData.churchLocations.map(location => <option key={location.id} value={location.id}>{location.name}</option>)}
                       </select>
                     </Field>
                   </div>
@@ -712,13 +739,13 @@ export function MemberRegistration() {
                   <div className="mt-6">
                     <Field label="Which department(s) do you serve in?" error={errors.departments}>
                       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                        {[...departments.filter(department => department.active).map(department => department.name), 'None'].map(department => (
+                        {[...formData.departments, { id: NONE, name: 'None' }].map(department => (
                           <GlassChoice
-                            key={department}
-                            label={department}
-                            selected={form.departments.includes(department as Department)}
-                          color={department === 'None' ? 'var(--muted)' : 'var(--accent)'}
-                            onClick={() => toggleDepartment(department as Department)}
+                            key={department.id}
+                            label={department.name}
+                            selected={department.id === NONE ? form.noDepartment : form.departmentIds.includes(department.id)}
+                            color={department.id === NONE ? 'var(--muted)' : 'var(--accent)'}
+                            onClick={() => toggleDepartment(department.id)}
                           />
                         ))}
                       </div>
@@ -758,36 +785,43 @@ export function MemberRegistration() {
                   {registeredMember ? (
                     <>
                       <Header icon={BadgeCheck} title="Convention tag ready" subtitle="Download or print this tag immediately for convention access." />
-                      <div className="grid gap-6 xl:grid-cols-[minmax(360px,520px)_1fr]">
-                        <ConventionTag member={registeredMember} refProp={tagRef} />
-                        <div className="space-y-4">
+                      <div className="grid gap-6 xl:grid-cols-[minmax(300px,420px)_minmax(0,1fr)]">
+                        <ConventionTag member={registeredMember} eventName={eventName} refProp={tagRef} />
+                        <div className="min-w-0 space-y-4">
                           <div className="rounded-2xl border border-portal-line bg-portal-surface p-5">
                             <h3 className="font-bold text-portal-ink">Convention tag details</h3>
                             <div className="mt-4 grid gap-3 text-sm">
                               {[
                                 ['Name', registeredMember.fullName],
-                                ['Member ID', registeredMember.id],
+                                ['Member ID', registeredMember.code],
                                 ['Assigned group', registeredMember.conventionGroup],
                                 ['Fellowship band', registeredMember.fellowshipBand],
                                 ['Departments', registeredMember.departments.join(', ')],
                                 ['Registration date', formatRegistrationDate(registeredMember.registeredAt)],
                               ].map(([label, value]) => (
-                                <div key={label} className="grid gap-1 rounded-xl bg-portal-surface p-3 sm:grid-cols-[150px_1fr]">
+                                <div key={label} className="grid gap-1 rounded-xl bg-portal-surface p-3 sm:grid-cols-[150px_minmax(0,1fr)]">
                                   <span className="text-xs font-semibold uppercase text-portal-label">{label}</span>
-                                  <span className="font-medium text-portal-ink">{value || '-'}</span>
+                                  <span className="break-words font-medium text-portal-ink">{value || '-'}</span>
                                 </div>
                               ))}
                             </div>
                           </div>
 
                           <div className="grid gap-3 sm:grid-cols-2">
-                            <button onClick={downloadTag} className="gradient-btn flex items-center justify-center gap-2">
+                            <button onClick={() => void downloadTag()} className="gradient-btn flex items-center justify-center gap-2">
                               <Download className="h-4 w-4" /> Download PNG
                             </button>
                             <button onClick={printTag} className="flex items-center justify-center gap-2 rounded-2xl border border-portal-line bg-portal-surface px-6 py-3 text-sm font-semibold text-portal-ink transition hover:bg-portal-surface">
                               <Printer className="h-4 w-4" /> Print / Save PDF
                             </button>
                           </div>
+                          <button onClick={() => navigate(`/convention/status/${registeredMember.statusToken}`)} className="flex w-full items-center justify-center gap-2 rounded-2xl border border-portal-line px-6 py-3 text-sm font-semibold text-portal-ink">
+                            View my convention status
+                          </button>
+                          <p className="text-xs leading-5 text-portal-label">
+                            Bookmark your status page:{' '}
+                            <span className="break-all text-portal-ink">{statusUrl(registeredMember.statusToken)}</span>
+                          </p>
                         </div>
                       </div>
                     </>
@@ -813,7 +847,7 @@ export function MemberRegistration() {
                     Continue <ChevronRight className="h-4 w-4" />
                   </button>
                 ) : (
-                  <button onClick={submit} disabled={submitting} className="flex min-h-11 items-center gap-2 rounded-full bg-portal-dark px-5 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-70">
+                  <button onClick={() => void submit()} disabled={submitting || processingPhoto} className="flex min-h-11 items-center gap-2 rounded-full bg-portal-dark px-5 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-70">
                     {submitting ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" /> : <Check className="h-4 w-4" />}
                     Complete Registration
                   </button>
@@ -826,7 +860,7 @@ export function MemberRegistration() {
 
       {registeredMember && (
         <section className="hidden print:block">
-          <ConventionTag member={registeredMember} />
+          <ConventionTag member={registeredMember} eventName={eventName} />
         </section>
       )}
     </main>

@@ -1,19 +1,8 @@
-import { useAuth } from '@/contexts/AuthContext';
 import { useAppData } from '@/contexts/AppDataContext';
 import { hasPermission, type Permission } from '@/lib/permissions';
 
-/** Client-side convention-role gate. Supabase RLS will enforce this server-side later. */
+/** Client-side gate for the current workspace. Supabase RLS enforces the same rules server-side. */
 export function usePermission(permission: Permission) {
-  const { user } = useAuth();
-  const { conventionRoles } = useAppData();
-
-  if (user?.role === 'super_admin' || user?.role === 'admin') return true;
-  if (!user?.email) return false;
-
-  return hasPermission(
-    conventionRoles
-      .filter(role => role.userEmail.toLowerCase() === user.email.toLowerCase())
-      .map(role => role.role),
-    permission,
-  );
+  const { myRoles } = useAppData();
+  return hasPermission(myRoles, permission);
 }
