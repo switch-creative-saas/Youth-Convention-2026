@@ -1,5 +1,3 @@
-import type { Executive, Member } from '@/types';
-
 type RegistrationAttachment = {
   filename: string;
   contentType: string;
@@ -10,17 +8,17 @@ type MemberConfirmationPayload = {
   type: 'member';
   to: string;
   subject: string;
-  member: Pick<Member,
-    'id' |
-    'fullName' |
-    'email' |
-    'phoneNumber' |
-    'fellowshipBand' |
-    'conventionGroup' |
-    'departments' |
-    'registeredAt'
-  >;
-  attachment: RegistrationAttachment;
+  member: {
+    id: string;
+    fullName: string;
+    email: string;
+    phoneNumber: string;
+    fellowshipBand: string;
+    conventionGroup: string;
+    departments: string[];
+    registeredAt: string;
+  };
+  attachment?: RegistrationAttachment;
   statusUrl?: string;
   tagUrl?: string;
 };
@@ -29,17 +27,15 @@ type ExecutiveConfirmationPayload = {
   type: 'executive';
   to: string;
   subject: string;
-  executive: Pick<Executive,
-    'id' |
-    'fullName' |
-    'email' |
-    'phoneNumber' |
-    'leadershipRole' |
-    'department' |
-    'fellowshipBand' |
-    'registeredAt'
-  > & {
-    temporaryPassword: string;
+  executive: {
+    id: string;
+    fullName: string;
+    email: string;
+    phoneNumber: string;
+    leadershipRole: string;
+    department: string;
+    fellowshipBand: string;
+    registeredAt: string;
   };
   statusUrl?: string;
   tagUrl?: string;
@@ -50,9 +46,8 @@ export type RegistrationConfirmationPayload = MemberConfirmationPayload | Execut
 export async function sendRegistrationConfirmation(payload: RegistrationConfirmationPayload) {
   const endpoint = import.meta.env.VITE_CONFIRMATION_EMAIL_ENDPOINT as string | undefined;
 
-  if (!endpoint) {
-    throw new Error('Set VITE_CONFIRMATION_EMAIL_ENDPOINT to send confirmation emails.');
-  }
+  // Email is optional: without an endpoint the attendee still gets their tag and status link on screen.
+  if (!endpoint) return false;
 
   const response = await fetch(endpoint, {
     method: 'POST',
@@ -70,4 +65,5 @@ export async function sendRegistrationConfirmation(payload: RegistrationConfirma
     }
     throw new Error(message);
   }
+  return true;
 }

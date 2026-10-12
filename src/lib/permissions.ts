@@ -1,15 +1,18 @@
-import type { ConventionRoleName } from '@/types';
+import type { WorkspaceRole } from '@/types';
 
-export type Permission = 'register' | 'verify' | 'claim_food' | 'claim_souvenir' | 'record_activity' | 'view_analytics' | 'export';
-export const ROLE_PERMISSIONS: Record<ConventionRoleName, Permission[]> = {
-  registration_desk: ['register'],
-  verification_operator: ['verify'],
-  food_distributor: ['claim_food'],
-  souvenir_distributor: ['claim_souvenir'],
-  activity_coordinator: ['record_activity'],
-  viewer: ['view_analytics'],
+// UI gating only; the database (RLS + SECURITY DEFINER functions) is the authority.
+export type Permission = 'view' | 'manage' | 'register' | 'verify' | 'claim_food' | 'claim_souvenir' | 'record_activity';
+
+export const PERMISSION_ROLES: Record<Permission, WorkspaceRole[]> = {
+  view: ['registration_desk', 'verification_operator', 'food_distributor', 'souvenir_distributor', 'activity_coordinator', 'viewer'],
+  manage: [],
+  register: ['registration_desk'],
+  verify: ['verification_operator'],
+  claim_food: ['food_distributor'],
+  claim_souvenir: ['souvenir_distributor'],
+  record_activity: ['activity_coordinator'],
 };
-// TODO: move permission enforcement to Supabase row-level security.
-export function hasPermission(roles: ConventionRoleName[], permission: Permission) {
-  return roles.some(role => ROLE_PERMISSIONS[role].includes(permission));
+
+export function hasPermission(roles: WorkspaceRole[], permission: Permission) {
+  return roles.includes('admin') || roles.some(role => PERMISSION_ROLES[permission].includes(role));
 }

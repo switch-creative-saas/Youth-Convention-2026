@@ -1,205 +1,185 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { ShieldCheck, ShieldMinus, UserCog, Clock, Activity, Search } from 'lucide-react';
+import { ShieldCheck, UserCog, Clock, Activity, Building2, Plus } from 'lucide-react';
 import { AdminLayout } from '@/components/AdminLayout';
 import { useAppData } from '@/contexts/AppDataContext';
-import { updateRegisteredAuthUserRole } from '@/contexts/AuthContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
 import { PillButton } from '@/components/ui-kit/PillButton';
-import { PortalInput } from '@/components/ui-kit/FormControls';
-import type { ConventionRoleName } from '@/types';
+import { PortalInput, PortalSelect, formLabelClass } from '@/components/ui-kit/FormControls';
+import { formatDateTime } from '@/lib/format';
+import { InviteLinkDialog } from '@/components/InviteLinkDialog';
+import type { InviteResult } from '@/lib/api';
+import { WORKSPACE_ROLE_LABELS, type WorkspaceRole } from '@/types';
 
-const CONVENTION_ROLE_LABELS: Record<ConventionRoleName, string> = {
-  registration_desk: 'Registration desk',
-  verification_operator: 'Verification operator',
-  food_distributor: 'Food distributor',
-  souvenir_distributor: 'Souvenir distributor',
-  activity_coordinator: 'Activity coordinator',
-  viewer: 'Viewer',
-};
+const STAFF_ROLES = (Object.keys(WORKSPACE_ROLE_LABELS) as WorkspaceRole[]).filter(role => role !== 'admin');
 
 export function AdminAccessManagement() {
-  const {
-    executives,
-    adminActivities,
-    promoteExecutiveToAdmin,
-    revokeExecutiveAdmin,
-    conventionRoles,
-    assignConventionRole,
-    revokeConventionRole,
-  } = useAppData();
-  const { user } = useAuth();
+  const { workspaces, currentWorkspace, workspaceMembers, adminActivities, inviteStaff, revokeRole, createWorkspace } = useAppData();
+  const { isPlatformAdmin, refreshProfile } = useAuth();
   const { addToast } = useToast();
-  const [search, setSearch] = useState('');
+  const [email, setEmail] = useState('');
+  const [staffName, setStaffName] = useState('');
+  const [shareLink, setShareLink] = useState<{ email: string; link: string } | null>(null);
+  const [role, setRole] = useState<WorkspaceRole>('registration_desk');
+  const [busy, setBusy] = useState(false);
+  const [workspaceForm, setWorkspaceForm] = useState({ name: '', slug: '', ownerEmail: '', ownerName: '', codePrefix: 'MOSYF' });
 
-  const actorEmail = user?.email ?? 'superadmin@mosyf.org';
-  const actorName = user?.name ?? 'Super Admin';
-  const filteredExecutives = executives.filter(exec =>
-    !search ||
-    exec.fullName.toLowerCase().includes(search.toLowerCase()) ||
-    exec.email.toLowerCase().includes(search.toLowerCase()) ||
-    exec.leadershipRole.toLowerCase().includes(search.toLowerCase())
-  );
-  const admins = executives.filter(exec => exec.registrationStatus === 'admin');
+  const roleOptions: WorkspaceRole[] = isPlatformAdmin ? ['admin', ...STAFF_ROLES] : STAFF_ROLES;
+  const admins = workspaceMembers.filter(member => member.role === 'admin');
 
-  const grantAccess = (executiveId: string) => {
-    const executive = executives.find(exec => exec.id === executiveId);
-    if (!executive) return;
-    promoteExecutiveToAdmin(executiveId, actorEmail, actorName);
-    updateRegisteredAuthUserRole(executive.email, 'admin');
-    addToast({ type: 'success', title: `${executive.fullName} can now access the admin dashboard` });
+  const run = async (action: () => Promise<void>, success: string, failure: string) => {
+    setBusy(true);
+    try {
+      await action();
+      if (success) addToast({ type: 'success', title: success });
+    } catch (error) {
+      addToast({ type: 'error', title: failure, description: error instanceof Error ? error.message : undefined, duration: 7000 });
+    } finally {
+      setBusy(false);
+    }
   };
 
-  const revokeAccess = (executiveId: string) => {
-    const executive = executives.find(exec => exec.id === executiveId);
-    if (!executive) return;
-    revokeExecutiveAdmin(executiveId, actorEmail, actorName);
-    updateRegisteredAuthUserRole(executive.email, 'executive');
-    addToast({ type: 'warning', title: `${executive.fullName} admin access revoked` });
+  /** Tells the admin what happened: emailed invite, existing login, or a link to share by hand. */
+  const reportInvite = (target: string, result: InviteResult, what: string) => {
+    if (result.status === 'link' && result.actionLink) {
+      setShareLink({ email: target, link: result.actionLink });
+      return;
+    }
+    addToast({
+      type: 'success',
+      title: what,
+      description: result.status === 'invited' ? `An invite email was sent to ${target} to set their password.` : `${target} already has a login and can sign in now.`,
+      duration: 7000,
+    });
+  };
+
+  const submitRole = (event: React.FormEvent) => {
+    event.preventDefault();
+    const target = email.trim().toLowerCase();
+    if (!target) return;
+    void run(async () => {
+      const result = await inviteStaff(target, role, staffName.trim() || undefined);
+      setEmail(''); setStaffName('');
+      reportInvite(target, result, `${WORKSPACE_ROLE_LABELS[role]} access given to ${target}`);
+    }, '', 'Could not give access');
+  };
+
+  const submitWorkspace = (event: React.FormEvent) => {
+    event.preventDefault();
+    const target = workspaceForm.ownerEmail.trim().toLowerCase();
+    void run(async () => {
+      const result = await createWorkspace({
+        name: workspaceForm.name.trim(),
+        slug: workspaceForm.slug.trim().toLowerCase(),
+        ownerEmail: target,
+        ownerName: workspaceForm.ownerName.trim() || undefined,
+        codePrefix: workspaceForm.codePrefix.trim().toUpperCase(),
+      });
+      await refreshProfile();
+      setWorkspaceForm({ name: '', slug: '', ownerEmail: '', ownerName: '', codePrefix: 'MOSYF' });
+      reportInvite(target, result, `Workspace created for ${target}`);
+    }, '', 'Could not create workspace');
   };
 
   return (
-    <AdminLayout
-      pageTitle="Admin Access Management"
-      pageSubtitle="Super admin control for executive registrations, admin promotion, revocation, and audit activity."
-    >
-
+    <AdminLayout pageTitle="Access Management" pageSubtitle="Who can sign in to this workspace, what they can do, and an audit of recent actions." requiresEvent={false}>
       <div className="mb-6 grid min-w-0 grid-cols-1 gap-4 md:grid-cols-3">
         {[
-          { label: 'Executive Registrations', value: executives.length, icon: UserCog, tone: 'text-portal-ink bg-portal-surface' },
-          { label: 'Active Admins', value: admins.length, icon: ShieldCheck, tone: 'text-portal-ink bg-portal-surface' },
-          { label: 'Audit Events', value: adminActivities.length, icon: Activity, tone: 'text-portal-ink bg-portal-surface' },
+          { label: 'Workspace Staff', value: new Set(workspaceMembers.map(member => member.userId)).size, icon: UserCog },
+          { label: 'Admins', value: admins.length, icon: ShieldCheck },
+          { label: 'Audit Events', value: adminActivities.length, icon: Activity },
         ].map((item, index) => (
-          <motion.div
-            key={item.label}
-            className="rounded-[20px] p-5 backdrop-blur-glass border bg-white/70 dark:bg-portal-surface border-white/45 dark:border-white/[0.08]"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: index * 0.06 }}
-          >
-            <div className={`w-11 h-11 rounded-2xl flex items-center justify-center ${item.tone}`}>
-              <item.icon className="w-5 h-5" />
-            </div>
+          <motion.div key={item.label} className="rounded-[20px] p-5 backdrop-blur-glass border bg-white/70 dark:bg-portal-surface border-white/45 dark:border-white/[0.08]" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.06 }}>
+            <div className="w-11 h-11 rounded-2xl flex items-center justify-center text-portal-ink bg-portal-surface"><item.icon className="w-5 h-5" /></div>
             <p className="font-mono text-3xl font-bold text-portal-ink dark:text-white mt-4">{item.value}</p>
             <p className="text-xs text-portal-label mt-1">{item.label}</p>
           </motion.div>
         ))}
       </div>
 
-      <div className="grid min-w-0 grid-cols-1 gap-6 2xl:grid-cols-[1.35fr_0.65fr]">
-        <motion.div
-          className="portal-card min-w-0 p-4 sm:p-6"
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-        >
-          <div className="mb-5 flex min-w-0 flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <h3 className="font-display font-semibold text-lg text-portal-ink dark:text-white">Executive Registrations</h3>
-            <div className="relative w-full sm:w-80">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-portal-label" />
-              <PortalInput
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                className="pl-10"
-                placeholder="Search executives..."
-              />
+      {isPlatformAdmin && (
+        <motion.section className="portal-card mb-6 p-4 sm:p-6" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
+          <div className="mb-4 flex items-center gap-2"><Building2 className="h-5 w-5 text-portal-ink" /><h3 className="font-display text-lg font-semibold text-portal-ink dark:text-white">Workspaces</h3></div>
+          <p className="mb-4 max-w-3xl text-sm text-portal-label">Each workspace is a separate, empty dashboard for one admin. Enter their email and they'll be invited to set a password (an existing login is simply given access).</p>
+          <form onSubmit={submitWorkspace} className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1.2fr_1fr_1.2fr_1fr_0.6fr_auto] xl:items-end">
+            <div><label className={formLabelClass}>Workspace name</label><PortalInput required value={workspaceForm.name} onChange={e => setWorkspaceForm({ ...workspaceForm, name: e.target.value, slug: workspaceForm.slug || e.target.value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') })} placeholder="e.g. Lagos Youth Fellowship" /></div>
+            <div><label className={formLabelClass}>Slug (public status URL)</label><PortalInput required pattern="[a-z0-9][a-z0-9-]{1,48}[a-z0-9]" value={workspaceForm.slug} onChange={e => setWorkspaceForm({ ...workspaceForm, slug: e.target.value.toLowerCase() })} placeholder="lagos-youth" /></div>
+            <div><label className={formLabelClass}>Admin email</label><PortalInput required type="email" value={workspaceForm.ownerEmail} onChange={e => setWorkspaceForm({ ...workspaceForm, ownerEmail: e.target.value })} placeholder="admin@example.com" /></div>
+            <div><label className={formLabelClass}>Admin name</label><PortalInput value={workspaceForm.ownerName} onChange={e => setWorkspaceForm({ ...workspaceForm, ownerName: e.target.value })} placeholder="Optional" /></div>
+            <div><label className={formLabelClass}>ID prefix</label><PortalInput required pattern="[A-Za-z0-9]{2,10}" value={workspaceForm.codePrefix} onChange={e => setWorkspaceForm({ ...workspaceForm, codePrefix: e.target.value.toUpperCase() })} /></div>
+            <PillButton variant="dark" type="submit" disabled={busy}><Plus className="h-4 w-4" /> Create</PillButton>
+          </form>
+          {workspaces.length > 0 && (
+            <div className="mt-5 grid gap-2 md:grid-cols-2">
+              {workspaces.map(ws => (
+                <div key={ws.id} className={`rounded-2xl border px-4 py-3 ${ws.id === currentWorkspace?.id ? 'border-portal-dark' : 'border-portal-line'}`}>
+                  <p className="text-sm font-medium text-portal-ink dark:text-white">{ws.name}</p>
+                  <p className="text-xs text-portal-label">/{ws.slug} · IDs {ws.codePrefix}-YYYY-0001{ws.isActive ? '' : ' · inactive'}</p>
+                </div>
+              ))}
             </div>
-          </div>
+          )}
+        </motion.section>
+      )}
 
-          <div className="table-scroll">
-            <table className="fit-table">
-              <thead>
-                <tr className="border-b border-portal-line dark:border-white/[0.06]">
-                  {['Name', 'Leadership Role', 'Department', 'Band', 'Registration Status', 'Actions'].map(header => (
-                    <th key={header} className="text-left text-xs font-medium uppercase tracking-[0.04em] text-portal-label pb-3 pr-4">{header}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {filteredExecutives.map((exec, index) => {
-                  const isAdmin = exec.registrationStatus === 'admin';
-                  return (
-                    <motion.tr
-                      key={exec.id}
-                      className="border-b border-portal-line dark:border-white/[0.04]"
-                      initial={{ opacity: 0, x: -12 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: index * 0.025 }}
-                    >
-                      <td className="py-4 pr-4">
-                        <div>
-                          <p className="cell-truncate text-sm font-semibold text-portal-ink dark:text-white">{exec.fullName}</p>
-                          <p className="cell-truncate text-xs text-portal-label">{exec.email}</p>
-                        </div>
-                      </td>
-                      <td className="py-4 pr-4 text-sm text-portal-label dark:text-portal-label">{exec.leadershipRole}</td>
-                      <td className="py-4 pr-4"><span className="status-badge-purple text-[10px]">{exec.department}</span></td>
-                      <td className="py-4 pr-4"><span className="status-badge-blue text-[10px]">{exec.fellowshipBand}</span></td>
-                      <td className="py-4 pr-4">
-                        <span className={`${isAdmin ? 'status-badge-green' : 'status-badge-amber'} text-[10px]`}>
-                          {isAdmin ? 'ADMIN' : 'EXECUTIVE'}
-                        </span>
-                      </td>
-                      <td className="min-w-[180px] py-4">
-                        {isAdmin ? (
-                          <button onClick={() => revokeAccess(exec.id)} className="inline-flex min-h-10 items-center gap-1.5 rounded-full bg-red-500/10 px-3 text-xs font-medium text-red-500 hover:bg-red-500/20">
-                            <ShieldMinus className="w-3.5 h-3.5" /> Revoke Admin Access
-                          </button>
-                        ) : (
-                          <PillButton variant="outline" className="min-w-[164px] px-3 text-xs" onClick={() => grantAccess(exec.id)}>
-                            <ShieldCheck className="w-3.5 h-3.5" /> Grant Admin Access
-                          </PillButton>
-                        )}
-                        <select className="mt-2 min-h-9 w-full rounded-full border border-portal-line bg-transparent px-3 text-xs text-portal-ink" defaultValue="" onChange={event => {
-                          const role = event.target.value as ConventionRoleName;
-                          if (!role) return;
-                          assignConventionRole(exec.email, role, actorEmail, actorName);
-                          event.currentTarget.value = '';
-                          addToast({ type: 'success', title: `${CONVENTION_ROLE_LABELS[role]} assigned to ${exec.fullName}` });
-                        }}>
-                          <option value="">Assign convention role</option>
-                          {Object.entries(CONVENTION_ROLE_LABELS).map(([role, label]) => <option key={role} value={role}>{label}</option>)}
-                        </select>
-                      </td>
-                    </motion.tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </motion.div>
+      {currentWorkspace && (
+        <div className="grid min-w-0 grid-cols-1 gap-6 2xl:grid-cols-[1.35fr_0.65fr]">
+          <motion.div className="portal-card min-w-0 p-4 sm:p-6" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
+            <h3 className="font-display font-semibold text-lg text-portal-ink dark:text-white">Staff of {currentWorkspace.name}</h3>
+            <p className="mt-1 text-sm text-portal-label">Enter an email and role. New people get an invite email to set their password; people who already have a login get the role straight away.</p>
 
-        <motion.div
-          className="portal-card min-w-0 p-4 sm:p-6"
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-        >
-          <h3 className="font-display font-semibold text-lg text-portal-ink dark:text-white mb-4">Admin Activity Audit</h3>
-          <div className="space-y-4 max-h-[560px] overflow-y-auto scrollbar-thin">
-            {(adminActivities.length ? adminActivities : [
-              { id: 'empty', actorName: 'System', actorEmail: 'system', action: 'role' as const, target: 'No admin actions recorded yet', createdAt: new Date().toISOString() },
-            ]).map(activity => (
-              <div key={activity.id} className="flex items-start gap-3">
-                <div className="w-9 h-9 rounded-xl bg-portal-surface text-portal-ink flex items-center justify-center shrink-0">
-                  <Clock className="w-4 h-4" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-portal-ink dark:text-white">{activity.target}</p>
-                  <p className="text-xs text-portal-label mt-1">{activity.actorName} - {new Date(activity.createdAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</p>
-                </div>
+            <form onSubmit={submitRole} className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_220px_auto] lg:items-end">
+              <div><label className={formLabelClass}>Email</label><PortalInput type="email" required value={email} onChange={e => setEmail(e.target.value)} placeholder="staff@example.com" /></div>
+              <div><label className={formLabelClass}>Name</label><PortalInput value={staffName} onChange={e => setStaffName(e.target.value)} placeholder="Optional" /></div>
+              <div><label className={formLabelClass}>Role</label>
+                <PortalSelect value={role} onChange={e => setRole(e.target.value as WorkspaceRole)}>
+                  {roleOptions.map(option => <option key={option} value={option}>{WORKSPACE_ROLE_LABELS[option]}</option>)}
+                </PortalSelect>
               </div>
-            ))}
-          </div>
-        </motion.div>
-      </div>
+              <PillButton variant="dark" type="submit" disabled={busy}>{busy ? 'Sending…' : 'Give access'}</PillButton>
+            </form>
 
-      <motion.section className="portal-card mt-6 p-4 sm:p-6" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
-        <h3 className="mb-4 font-display text-lg font-semibold text-portal-ink dark:text-white">Convention roles</h3>
-        {conventionRoles.length === 0 ? <p className="text-sm text-portal-label">No convention-specific roles have been assigned.</p> : <div className="grid gap-3 md:grid-cols-2">
-          {conventionRoles.map(role => <div key={role.id} className="flex items-center justify-between gap-3 rounded-2xl border border-portal-line px-4 py-3"><div><p className="text-sm font-medium text-portal-ink dark:text-white">{CONVENTION_ROLE_LABELS[role.role]}</p><p className="text-xs text-portal-label">{role.userEmail}</p></div><button type="button" onClick={() => { revokeConventionRole(role.id, actorEmail, actorName); addToast({ type: 'success', title: 'Convention role revoked' }); }} className="rounded-full border border-portal-line px-3 py-1.5 text-xs text-portal-ink">Revoke</button></div>)}
-        </div>}
-      </motion.section>
+            <div className="mt-6 space-y-3">
+              {workspaceMembers.length === 0 && <p className="text-sm text-portal-label">No staff assigned yet.</p>}
+              {workspaceMembers.map(member => {
+                const locked = member.role === 'admin' && !isPlatformAdmin;
+                return (
+                  <div key={`${member.userId}-${member.role}`} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-portal-line px-4 py-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-portal-ink dark:text-white">{member.name}</p>
+                      <p className="truncate text-xs text-portal-label">{member.email} · since {formatDateTime(member.assignedAt)}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className={`${member.role === 'admin' ? 'status-badge-green' : 'status-badge-blue'} text-[10px]`}>{WORKSPACE_ROLE_LABELS[member.role]}</span>
+                      {!locked && (
+                        <button type="button" disabled={busy} onClick={() => void run(() => revokeRole(member.userId, member.role), 'Role revoked', 'Could not revoke role')} className="rounded-full border border-portal-line px-3 py-1.5 text-xs text-portal-ink disabled:opacity-60">Revoke</button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </motion.div>
+
+          <motion.div className="portal-card min-w-0 p-4 sm:p-6" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
+            <h3 className="font-display font-semibold text-lg text-portal-ink dark:text-white mb-4">Activity Audit</h3>
+            <div className="space-y-4 max-h-[560px] overflow-y-auto scrollbar-thin">
+              {adminActivities.length === 0 && <p className="text-sm text-portal-label">No actions recorded yet.</p>}
+              {adminActivities.map(activity => (
+                <div key={activity.id} className="flex items-start gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-portal-surface text-portal-ink flex items-center justify-center shrink-0"><Clock className="w-4 h-4" /></div>
+                  <div>
+                    <p className="text-sm font-medium text-portal-ink dark:text-white">{activity.target}</p>
+                    <p className="text-xs text-portal-label mt-1">{activity.actorName} - {formatDateTime(activity.createdAt)}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </motion.div>
+        </div>
+      )}
+      {shareLink && <InviteLinkDialog email={shareLink.email} link={shareLink.link} onClose={() => setShareLink(null)} />}
     </AdminLayout>
   );
 }

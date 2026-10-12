@@ -1,130 +1,150 @@
-import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react';
-import type { StoredAuthUser, User, UserRole } from '@/types';
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
+import type { Session } from '@supabase/supabase-js';
+import { appBaseUrl, errorMessage, pendingAuthLink, supabase } from '@/lib/supabase';
+import type { User, UserRole, WorkspaceRole } from '@/types';
+
+export interface Membership {
+  workspaceId: string;
+  role: WorkspaceRole;
+}
 
 interface AuthContextType {
   user: User | null;
   role: UserRole | null;
-  login: (email: string, password: string) => Promise<{ success: boolean; role?: string }>;
-  logout: () => void;
+  isPlatformAdmin: boolean;
+  memberships: Membership[];
   isLoading: boolean;
-}
-
-const SEEDED_USERS: Record<string, { password: string; user: User }> = {
-  'superadmin@mosyf.org': {
-    password: 'admin123',
-    user: { email: 'superadmin@mosyf.org', name: 'Super Admin', role: 'super_admin' },
-  },
-  'admin@mosyf.org': {
-    password: 'admin123',
-    user: { email: 'admin@mosyf.org', name: 'Admin User', role: 'admin' },
-  },
-  'executive@mosyf.org': {
-    password: 'exec123',
-    user: { email: 'executive@mosyf.org', name: 'Michael Emenike', role: 'executive' },
-  },
-  'member@mosyf.org': {
-    password: 'member123',
-    user: { email: 'member@mosyf.org', name: 'John Okafor', role: 'member' },
-  },
-};
-
-export const REGISTERED_USERS_STORAGE_KEY = 'mosyf_registered_users';
-
-export function addRegisteredAuthUser(authUser: StoredAuthUser) {
-  try {
-    const stored = window.localStorage.getItem(REGISTERED_USERS_STORAGE_KEY);
-    const users = stored ? JSON.parse(stored) as StoredAuthUser[] : [];
-    const normalizedEmail = authUser.email.trim().toLowerCase();
-    const nextUsers = users.filter(item => item.email.trim().toLowerCase() !== normalizedEmail);
-    nextUsers.push({
-      ...authUser,
-      email: normalizedEmail,
-      user: { ...authUser.user, email: normalizedEmail },
-    });
-    window.localStorage.setItem(REGISTERED_USERS_STORAGE_KEY, JSON.stringify(nextUsers));
-  } catch (error) {
-    console.warn('Unable to persist registered user credentials.', error);
-  }
-}
-
-export function updateRegisteredAuthUserRole(email: string, role: UserRole) {
-  try {
-    const stored = window.localStorage.getItem(REGISTERED_USERS_STORAGE_KEY);
-    const users = stored ? JSON.parse(stored) as StoredAuthUser[] : [];
-    const normalizedEmail = email.trim().toLowerCase();
-    const nextUsers = users.map(item => item.email.trim().toLowerCase() === normalizedEmail ? {
-      ...item,
-      user: { ...item.user, role },
-    } : item);
-    window.localStorage.setItem(REGISTERED_USERS_STORAGE_KEY, JSON.stringify(nextUsers));
-  } catch (error) {
-    console.warn('Unable to update registered user role.', error);
-  }
-}
-
-function readRegisteredUsers(): Record<string, { password: string; user: User }> {
-  try {
-    const stored = window.localStorage.getItem(REGISTERED_USERS_STORAGE_KEY);
-    const users = stored ? JSON.parse(stored) as StoredAuthUser[] : [];
-    return users.reduce<Record<string, { password: string; user: User }>>((acc, item) => {
-      acc[item.email.trim().toLowerCase()] = { password: item.password, user: item.user };
-      return acc;
-    }, {});
-  } catch {
-    return {};
-  }
+  /** Set after the user opens an invite or password-reset link: they must choose a password. */
+  passwordRecovery: false | 'invite' | 'recovery';
+  /** Error carried back on an expired or invalid email link. */
+  authLinkError: string | null;
+  login: (email: string, password: string) => Promise<{ success: boolean; role?: UserRole; error?: string }>;
+  logout: () => Promise<void>;
+  requestPasswordReset: (email: string) => Promise<void>;
+  updatePassword: (password: string) => Promise<void>;
+  refreshProfile: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+async function loadProfile(session: Session) {
+  const authUser = session.user;
+  const [{ data: platform, error: platformError }, { data: rows, error: membershipError }] = await Promise.all([
+    supabase.from('platform_admins').select('user_id').eq('user_id', authUser.id).maybeSingle(),
+    supabase.from('workspace_members').select('workspace_id, role').eq('user_id', authUser.id),
+  ]);
+  if (platformError) throw platformError;
+  if (membershipError) throw membershipError;
+
+  const memberships: Membership[] = (rows ?? []).map(row => ({ workspaceId: row.workspace_id, role: row.role }));
+  const isPlatformAdmin = Boolean(platform);
+  const role: UserRole | null = isPlatformAdmin
+    ? 'super_admin'
+    : memberships.some(m => m.role === 'admin') ? 'admin'
+    : memberships.length ? 'staff'
+    : null;
+  const metadataName = typeof authUser.user_metadata?.name === 'string' ? authUser.user_metadata.name : '';
+  const user: User | null = role ? {
+    id: authUser.id,
+    email: authUser.email ?? '',
+    name: metadataName || authUser.email || 'Admin',
+    role,
+  } : null;
+  return { user, role, memberships, isPlatformAdmin };
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [role, setRole] = useState<UserRole | null>(null);
+  const [memberships, setMemberships] = useState<Membership[]>([]);
+  const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [passwordRecovery, setPasswordRecovery] = useState<false | 'invite' | 'recovery'>(
+    pendingAuthLink?.accessToken && (pendingAuthLink.type === 'invite' || pendingAuthLink.type === 'recovery') ? pendingAuthLink.type : false,
+  );
+  const [authLinkError] = useState(() => pendingAuthLink?.error ?? null);
+
+  const applySession = useCallback(async (next: Session | null) => {
+    setSession(next);
+    if (!next) {
+      setUser(null); setRole(null); setMemberships([]); setIsPlatformAdmin(false);
+      setIsLoading(false);
+      return null;
+    }
+    try {
+      const profile = await loadProfile(next);
+      setUser(profile.user); setRole(profile.role); setMemberships(profile.memberships); setIsPlatformAdmin(profile.isPlatformAdmin);
+      return profile;
+    } catch (error) {
+      console.error('Unable to load profile', error);
+      setUser(null); setRole(null); setMemberships([]); setIsPlatformAdmin(false);
+      return null;
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    const saved = localStorage.getItem('mosyf_auth');
-    if (saved) {
-      try {
-        const { user: savedUser } = JSON.parse(saved);
-        setUser(savedUser);
-        setRole(savedUser.role);
-      } catch {
-        localStorage.removeItem('mosyf_auth');
+    const start = async () => {
+      if (pendingAuthLink?.accessToken && pendingAuthLink.refreshToken) {
+        const { error } = await supabase.auth.setSession({ access_token: pendingAuthLink.accessToken, refresh_token: pendingAuthLink.refreshToken });
+        if (error) console.error('Unable to use the email link', error);
       }
-    }
-    setIsLoading(false);
-  }, []);
+      const { data } = await supabase.auth.getSession();
+      await applySession(data.session);
+    };
+    void start();
+    const { data: subscription } = supabase.auth.onAuthStateChange((event, next) => {
+      if (event === 'PASSWORD_RECOVERY') setPasswordRecovery('recovery');
+      if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || event === 'USER_UPDATED' || event === 'PASSWORD_RECOVERY') {
+        // Defer: Supabase calls inside this callback can deadlock the auth lock.
+        window.setTimeout(() => { void applySession(next); }, 0);
+      } else {
+        setSession(next);
+      }
+    });
+    return () => subscription.subscription.unsubscribe();
+  }, [applySession]);
 
   const login = useCallback(async (email: string, password: string) => {
+    const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim().toLowerCase(), password });
+    if (error || !data.session) return { success: false, error: error?.message ?? 'Sign in failed.' };
     setIsLoading(true);
-    await new Promise(r => setTimeout(r, 800));
-    
-    const normalizedEmail = email.trim().toLowerCase();
-    const found = {
-      ...SEEDED_USERS,
-      ...readRegisteredUsers(),
-    }[normalizedEmail];
-    if (found && found.password === password) {
-      setUser(found.user);
-      setRole(found.user.role);
-      localStorage.setItem('mosyf_auth', JSON.stringify({ user: found.user }));
-      setIsLoading(false);
-      return { success: true, role: found.user.role };
+    const profile = await applySession(data.session);
+    if (!profile?.role) {
+      await supabase.auth.signOut();
+      return { success: false, error: 'This account has not been given access to any convention dashboard.' };
     }
-    
-    setIsLoading(false);
-    return { success: false };
+    return { success: true, role: profile.role };
+  }, [applySession]);
+
+  const logout = useCallback(async () => {
+    await supabase.auth.signOut();
+    setPasswordRecovery(false);
   }, []);
 
-  const logout = useCallback(() => {
-    setUser(null);
-    setRole(null);
-    localStorage.removeItem('mosyf_auth');
+  const requestPasswordReset = useCallback(async (email: string) => {
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), { redirectTo: appBaseUrl() });
+    if (error) throw new Error(errorMessage(error));
   }, []);
+
+  const updatePassword = useCallback(async (password: string) => {
+    const { error } = await supabase.auth.updateUser({ password });
+    if (error) throw new Error(errorMessage(error));
+    setPasswordRecovery(false);
+  }, []);
+
+  const refreshProfile = useCallback(async () => {
+    const { data } = await supabase.auth.getSession();
+    await applySession(data.session);
+  }, [applySession]);
 
   return (
-    <AuthContext.Provider value={{ user, role, login, logout, isLoading }}>
+    <AuthContext.Provider value={{
+      user: session ? user : null, role, isPlatformAdmin, memberships, isLoading, passwordRecovery, authLinkError,
+      login, logout, requestPasswordReset, updatePassword, refreshProfile,
+    }}>
       {children}
     </AuthContext.Provider>
   );

@@ -4,58 +4,40 @@ import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { ToastProvider } from '@/contexts/ToastContext';
 import { AppDataProvider } from '@/contexts/AppDataContext';
 import { LoginPage } from '@/pages/LoginPage';
+import { ResetPasswordPage } from '@/pages/ResetPasswordPage';
 import { AdminDashboard } from '@/pages/AdminDashboard';
 import { AdminRegistrations } from '@/pages/AdminRegistrations';
 import { AdminAttendance } from '@/pages/AdminAttendance';
 import { AdminAnalytics } from '@/pages/AdminAnalytics';
 import { AdminSettings } from '@/pages/AdminSettings';
 import { AdminAccessManagement } from '@/pages/AdminAccessManagement';
-import { ExecutiveDashboard } from '@/pages/ExecutiveDashboard';
-import { MemberHome } from '@/pages/MemberHome';
-import { MemberID } from '@/pages/MemberID';
-import { MemberAttendance } from '@/pages/MemberAttendance';
-import { MemberProfile } from '@/pages/MemberProfile';
 import { MemberRegistration } from '@/pages/MemberRegistration';
 import { ExecutiveRegistration } from '@/pages/ExecutiveRegistration';
 import { ConventionStatusPortal, ConventionStatusSearchPage } from '@/pages/ConventionStatusPortal';
 import { HireDeveloperPage } from '@/pages/HireDeveloperPage';
 import { QRCheckinPage } from '@/pages/QRCheckinPage';
 import { QROnboardingPage } from '@/pages/QROnboardingPage';
-import { MemberLayout } from '@/components/MemberLayout';
+import type { UserRole } from '@/types';
 
-function AdminRoute({ children }: { children: React.ReactNode }) {
+function Spinner() {
+  return <div className="portal-theme portal-canvas min-h-screen flex items-center justify-center"><div className="w-8 h-8 border-2 border-portal-line border-t-portal-accent rounded-full animate-spin" /></div>;
+}
+
+/** Signed-in workspace staff only. `roles` narrows it further (e.g. admins only). */
+function RequireAuth({ children, roles }: { children: React.ReactNode; roles?: UserRole[] }) {
   const { user, role, isLoading } = useAuth();
-  if (isLoading) return <div className="portal-theme portal-canvas min-h-screen flex items-center justify-center"><div className="w-8 h-8 border-2 border-portal-line border-t-portal-accent rounded-full animate-spin" /></div>;
-  if (!user) return <Navigate to="/login" replace />;
-  if (role !== 'super_admin' && role !== 'admin') return <Navigate to="/login" replace />;
+  if (isLoading) return <Spinner />;
+  if (!user || !role) return <Navigate to="/login" replace />;
+  if (roles && !roles.includes(role)) return <Navigate to="/admin/dashboard" replace />;
   return <>{children}</>;
 }
 
-function SuperAdminRoute({ children }: { children: React.ReactNode }) {
-  const { user, role, isLoading } = useAuth();
-  if (isLoading) return <div className="portal-theme portal-canvas min-h-screen flex items-center justify-center"><div className="w-8 h-8 border-2 border-portal-line border-t-portal-accent rounded-full animate-spin" /></div>;
-  if (!user) return <Navigate to="/login" replace />;
-  if (role !== 'super_admin') return <Navigate to="/admin/dashboard" replace />;
-  return <>{children}</>;
-}
-
-function ExecutiveRoute({ children }: { children: React.ReactNode }) {
-  const { user, role, isLoading } = useAuth();
-  if (isLoading) return <div className="portal-theme portal-canvas min-h-screen flex items-center justify-center"><div className="w-8 h-8 border-2 border-portal-line border-t-portal-accent rounded-full animate-spin" /></div>;
-  if (!user) return <Navigate to="/login" replace />;
-  if (role !== 'executive') return <Navigate to="/login" replace />;
-  return <>{children}</>;
-}
-
-function MemberRoute({ children }: { children: React.ReactNode }) {
-  const { user, role, isLoading } = useAuth();
-  if (isLoading) return <div className="portal-theme portal-canvas min-h-screen flex items-center justify-center"><div className="w-8 h-8 border-2 border-portal-line border-t-portal-accent rounded-full animate-spin" /></div>;
-  if (!user) return <Navigate to="/login" replace />;
-  if (role !== 'member') return <Navigate to="/login" replace />;
-  return <>{children}</>;
-}
+const ADMINS: UserRole[] = ['super_admin', 'admin'];
 
 function AppRoutes() {
+  const { passwordRecovery } = useAuth();
+  if (passwordRecovery) return <ResetPasswordPage />;
+
   return (
     <Routes>
       <Route path="/" element={<LoginPage />} />
@@ -69,23 +51,12 @@ function AppRoutes() {
       <Route path="/qr/:token" element={<QRCheckinPage />} />
       <Route path="/qr-checkin/:token" element={<QROnboardingPage />} />
 
-      {/* Admin Routes */}
-      <Route path="/admin/dashboard" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
-      <Route path="/admin/registrations" element={<AdminRoute><AdminRegistrations /></AdminRoute>} />
-      <Route path="/admin/attendance" element={<AdminRoute><AdminAttendance /></AdminRoute>} />
-      <Route path="/admin/analytics" element={<AdminRoute><AdminAnalytics /></AdminRoute>} />
-      <Route path="/admin/convention" element={<AdminRoute><AdminSettings /></AdminRoute>} />
-      <Route path="/admin/access" element={<SuperAdminRoute><AdminAccessManagement /></SuperAdminRoute>} />
-
-      {/* Executive Routes */}
-      <Route path="/executive/dashboard" element={<ExecutiveRoute><ExecutiveDashboard /></ExecutiveRoute>} />
-      <Route path="/executive/convention" element={<ExecutiveRoute><ExecutiveDashboard /></ExecutiveRoute>} />
-
-      {/* Member Routes */}
-      <Route path="/member/home" element={<MemberRoute><MemberLayout><MemberHome /></MemberLayout></MemberRoute>} />
-      <Route path="/member/id" element={<MemberRoute><MemberLayout><MemberID /></MemberLayout></MemberRoute>} />
-      <Route path="/member/attendance" element={<MemberRoute><MemberLayout><MemberAttendance /></MemberLayout></MemberRoute>} />
-      <Route path="/member/profile" element={<MemberRoute><MemberLayout><MemberProfile /></MemberLayout></MemberRoute>} />
+      <Route path="/admin/dashboard" element={<RequireAuth><AdminDashboard /></RequireAuth>} />
+      <Route path="/admin/registrations" element={<RequireAuth><AdminRegistrations /></RequireAuth>} />
+      <Route path="/admin/attendance" element={<RequireAuth><AdminAttendance /></RequireAuth>} />
+      <Route path="/admin/analytics" element={<RequireAuth><AdminAnalytics /></RequireAuth>} />
+      <Route path="/admin/convention" element={<RequireAuth roles={ADMINS}><AdminSettings /></RequireAuth>} />
+      <Route path="/admin/access" element={<RequireAuth roles={ADMINS}><AdminAccessManagement /></RequireAuth>} />
 
       <Route path="*" element={<Navigate to="/login" replace />} />
     </Routes>

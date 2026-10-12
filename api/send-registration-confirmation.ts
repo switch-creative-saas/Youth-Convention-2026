@@ -63,7 +63,7 @@ function wrapEmail(title: string, intro: string, rows: Array<[string, string]>, 
     <div style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,sans-serif;color:#0f172a;">
       <div style="max-width:640px;margin:0 auto;padding:28px 16px;">
         <div style="background:#083f63;border-radius:22px 22px 0 0;padding:26px;color:#ffffff;">
-          <p style="margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.18em;color:#bfdbfe;">MOSYF Youth Convention 2026</p>
+          <p style="margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.18em;color:#bfdbfe;">Convention Registration</p>
           <h1 style="margin:0;font-size:24px;line-height:1.25;">${escapeHtml(title)}</h1>
         </div>
         <div style="background:#ffffff;border:1px solid #e2e8f0;border-top:0;border-radius:0 0 22px 22px;padding:26px;">
@@ -99,8 +99,8 @@ function buildMemberEmail(payload: Record<string, unknown>): EmailContent {
 
   return {
     html: wrapEmail(
-      'Your MOSYF Convention Registration is Confirmed',
-      `Hello ${escapeHtml(getString(member, 'fullName').split(' ')[0] || 'there')}, your registration for the Mountain of Solution Youth Fellowship Convention has been successfully received.`,
+      getString(payload, 'subject', 'Your Convention Registration is Confirmed'),
+      `Hello ${escapeHtml(getString(member, 'fullName').split(' ')[0] || 'there')}, your convention registration has been successfully received.`,
       rows,
       'Convention details, status updates, tag printing, biometric verification, food, souvenir, and activity status will be available through your personal convention status link.',
       { statusUrl: getString(payload, 'statusUrl'), tagUrl: getString(payload, 'tagUrl') }
@@ -119,17 +119,16 @@ function buildExecutiveEmail(payload: Record<string, unknown>): EmailContent {
     ['Assigned Role', getString(executive, 'leadershipRole')],
     ['Department', getString(executive, 'department')],
     ['Fellowship Band', getString(executive, 'fellowshipBand')],
-    ['Temporary Password', getString(executive, 'temporaryPassword')],
-    ['Registered At', formatDate(getString(executive, 'registeredAt'))],
+        ['Registered At', formatDate(getString(executive, 'registeredAt'))],
     ['Registration Status', 'Confirmed'],
   ];
 
   return {
     html: wrapEmail(
-      'Your MOSYF Convention Registration is Confirmed',
-      `Hello ${escapeHtml(getString(executive, 'fullName').split(' ')[0] || 'there')}, your executive registration for the Mountain of Solution Youth Fellowship Convention has been successfully received.`,
+      getString(payload, 'subject', 'Your Convention Registration is Confirmed'),
+      `Hello ${escapeHtml(getString(executive, 'fullName').split(' ')[0] || 'there')}, your executive registration has been successfully received.`,
       rows,
-      'Your executive tag and status portal will reflect admin approval once an authorized admin approves your executive registration.',
+      'Your executive tag and convention status are available through your personal status link.',
       { statusUrl: getString(payload, 'statusUrl'), tagUrl: getString(payload, 'tagUrl') }
     ),
     text: rows.map(([label, value]) => `${label}: ${value || 'Not provided'}`).join('\n'),

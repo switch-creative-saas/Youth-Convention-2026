@@ -1,16 +1,25 @@
 import type React from 'react';
-import { CheckCircle, UserRound } from 'lucide-react';
+import { UserRound } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import youthLogo from '@/assets/youth-logo.png';
-import type { Executive, Member } from '@/types';
+import type { Attendee } from '@/types';
+import { tagNumber } from '@/lib/format';
+
+/** The fields a printed tag needs; satisfied by Attendee and by the public status payload. */
+export type TagAttendee = Pick<Attendee, 'fullName' | 'code' | 'conventionGroup' | 'fellowshipBand' | 'leadershipRole' | 'departments'> & {
+  profilePhoto?: string;
+  statusToken?: string;
+};
 
 type ConventionTagProps = {
-  member: Member;
+  member: TagAttendee;
+  eventName?: string;
   refProp?: React.RefObject<HTMLDivElement | null>;
 };
 
 type ExecutiveConventionTagProps = {
-  executive: Executive;
+  executive: TagAttendee;
+  eventName?: string;
   refProp?: React.RefObject<HTMLDivElement | null>;
 };
 
@@ -57,7 +66,7 @@ function DiamondAccent({ className = '' }: { className?: string }) {
   );
 }
 
-export function ConventionTag({ member, refProp }: ConventionTagProps) {
+export function ConventionTag({ member, eventName = 'Youth convention', refProp }: ConventionTagProps) {
   return (
     <div
       ref={refProp}
@@ -72,12 +81,12 @@ export function ConventionTag({ member, refProp }: ConventionTagProps) {
       />
 
       <div className="absolute left-[6.2%] top-[2.4%] flex h-[6.4%] max-w-[43%] items-center gap-[3%]">
-        <img src={youthLogo} alt="Youth Convention 2026" className="h-full w-auto shrink-0 object-contain" />
+        <img src={youthLogo} alt={eventName} className="h-full w-auto shrink-0 object-contain" />
         <p
-          className="min-w-0 whitespace-nowrap text-[clamp(0.72rem,2.8vw,1rem)] font-semibold leading-none text-[#0b4a43]"
+          className="min-w-0 truncate text-[clamp(0.72rem,2.8vw,1rem)] font-semibold leading-none text-[#0b4a43]"
           style={{ fontFamily: '"Brush Script MT", "Segoe Script", cursive' }}
         >
-          Youth convention 2026
+          {eventName}
         </p>
       </div>
 
@@ -133,7 +142,7 @@ export function ConventionTag({ member, refProp }: ConventionTagProps) {
       </div>
 
       <div className="absolute left-[31.8%] top-[80.8%] rounded-lg bg-[#069d92] px-[4%] py-[1.4%] text-center text-[clamp(0.78rem,3.2vw,1.1rem)] font-bold leading-none text-white">
-        ID : {member.id.replace(/^MOSYF-2026-/, '')}
+        ID : {tagNumber(member.code)}
       </div>
 
       <div className="absolute bottom-[4.8%] right-[4%] h-px w-[32%] bg-[#0b4a43]" />
@@ -144,9 +153,8 @@ export function ConventionTag({ member, refProp }: ConventionTagProps) {
   );
 }
 
-export function ExecutiveConventionTag({ executive, refProp }: ExecutiveConventionTagProps) {
-  const isAdminApproved = executive.registrationStatus === 'admin';
-  const qrValue = executive.statusToken ? `executive:${executive.statusToken}` : executive.id;
+export function ExecutiveConventionTag({ executive, eventName = 'Youth convention', refProp }: ExecutiveConventionTagProps) {
+  const qrValue = executive.code;
 
   return (
     <div
@@ -162,12 +170,12 @@ export function ExecutiveConventionTag({ executive, refProp }: ExecutiveConventi
       />
 
       <div className="absolute left-[6.2%] top-[2.4%] flex h-[6.4%] max-w-[43%] items-center gap-[3%]">
-        <img src={youthLogo} alt="Youth Convention 2026" className="h-full w-auto shrink-0 object-contain" />
+        <img src={youthLogo} alt={eventName} className="h-full w-auto shrink-0 object-contain" />
         <p
-          className="min-w-0 whitespace-nowrap text-[clamp(0.72rem,2.8vw,1rem)] font-semibold leading-none text-[#0b4a43]"
+          className="min-w-0 truncate text-[clamp(0.72rem,2.8vw,1rem)] font-semibold leading-none text-[#0b4a43]"
           style={{ fontFamily: '"Brush Script MT", "Segoe Script", cursive' }}
         >
-          Youth convention 2026
+          {eventName}
         </p>
       </div>
 
@@ -189,11 +197,6 @@ export function ExecutiveConventionTag({ executive, refProp }: ExecutiveConventi
         EXECUTIVE
       </p>
 
-      {isAdminApproved && (
-        <div className="absolute right-[6%] top-[12.4%] z-10 flex rotate-[-8deg] items-center gap-1 rounded-full border-2 border-[#069d92] bg-white/80 px-3 py-1 text-[clamp(0.52rem,2.1vw,0.72rem)] font-black uppercase text-[#069d92]">
-          <CheckCircle className="h-3.5 w-3.5" /> Admin Approved
-        </div>
-      )}
 
       <div className="absolute left-[25.5%] top-[16.4%] h-[45.5%] w-[49%]">
         <div className="absolute inset-0 bg-[#484848]" />
@@ -230,10 +233,10 @@ export function ExecutiveConventionTag({ executive, refProp }: ExecutiveConventi
 
       <div className="absolute left-[22%] top-[80.8%] grid w-[56%] gap-1 text-center">
         <div className="mx-auto rounded-lg bg-[#069d92] px-[6%] py-[1.4%] text-[clamp(0.62rem,2.5vw,0.86rem)] font-bold leading-none text-white">
-          ID : {executive.id.replace(/^MOSYF-ESC-/, '')}
+          ID : {tagNumber(executive.code)}
         </div>
         <p className="truncate text-[clamp(0.55rem,2.1vw,0.76rem)] font-black uppercase tracking-wide text-[#0b4a43]">
-          {executive.department} · {executive.fellowshipBand}
+          {[executive.departments.join(', '), executive.fellowshipBand].filter(Boolean).join(' · ')}
         </p>
       </div>
 
