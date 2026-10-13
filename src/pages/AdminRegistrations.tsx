@@ -25,7 +25,7 @@ const LINK_STATUS_BADGE = { active: 'status-badge-green', expired: 'status-badge
 const PAGE_SIZE = 10;
 
 export function AdminRegistrations() {
-  const { members, executives, registrationLinks, bands, churchGroups, currentEvent, createRegistrationLink, setRegistrationLinkActive, deleteAttendee, updateAttendee, refresh } = useAppData();
+  const { members, executives, registrationLinks, bands, churchGroups, currentEvent, createRegistrationLink, setRegistrationLinkActive, deleteAttendee, updateAttendee, refreshAttendee } = useAppData();
   const [emailingId, setEmailingId] = useState<string | null>(null);
 
   /** Resends the confirmation email (with the tag attached) through the send-registration-email function. */
@@ -40,7 +40,7 @@ export function AdminRegistrations() {
       addToast({ type: 'error', title: 'Email not sent', description: error instanceof Error ? error.message : undefined, duration: 7000 });
     } finally {
       setEmailingId(null);
-      void refresh().catch(() => undefined);
+      void refreshAttendee(row.id).catch(() => undefined);
     }
   };
   const { addToast } = useToast();

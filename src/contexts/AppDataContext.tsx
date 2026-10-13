@@ -10,7 +10,20 @@ import type {
 
 const WORKSPACE_STORAGE_KEY = 'mosyf_current_workspace';
 
-type Loader = 'attendees' | 'attendance' | 'biometric' | 'activity' | 'links' | 'devices';
+type Loader = 'biometric' | 'links' | 'devices';
+type Row = Record<string, unknown>;
+
+/** Replaces the row with the same id, or adds it (newest first unless prepend is false). */
+function upsertRow<T extends { id: string | number }>(rows: T[], row: T, prepend = true, cap?: number) {
+  const index = rows.findIndex(item => item.id === row.id);
+  const next = index === -1 ? (prepend ? [row, ...rows] : [...rows, row]) : rows.map((item, i) => (i === index ? row : item));
+  return cap ? next.slice(0, cap) : next;
+}
+
+/** Removes a row by id; returns the same array when it isn't present so nothing re-renders. */
+function removeRow<T extends { id: string | number }>(rows: T[], id: unknown) {
+  return rows.some(item => item.id === id) ? rows.filter(item => item.id !== id) : rows;
+}
 
 interface AppDataContextType {
   loading: boolean;
@@ -42,6 +55,8 @@ interface AppDataContextType {
   myRoles: WorkspaceRole[];
 
   refresh: () => Promise<void>;
+  /** Re-reads one attendee after an action (e.g. a fingerprint check-in) without reloading everyone. */
+  refreshAttendee: (attendeeId: string) => Promise<void>;
   saveEvent: (event: Partial<ConventionEvent> & Pick<ConventionEvent, 'name' | 'startDate' | 'endDate'>) => Promise<ConventionEvent>;
   activateEvent: (eventId: string) => Promise<void>;
   saveListItem: (entity: ManagedListEntity, item: Partial<ChurchGroup> & Pick<Band, 'name'>) => Promise<void>;
@@ -140,14 +155,24 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // ---- loaders -----------------------------------------------------------
+  // Small lists that are cheap to reload after the user's own actions.
   const loaders = useMemo<Record<Loader, () => Promise<void>>>(() => ({
-    attendees: async () => { if (eventId) setAttendeeData(await api.fetchAttendeeData(eventId)); },
-    attendance: async () => { if (eventId) setAttendanceRows(await api.fetchAttendance(eventId)); },
     biometric: async () => { if (eventId) setBiometricRows(await api.fetchBiometricEvents(eventId)); },
-    activity: async () => { if (wsId) setActivities(await api.fetchActivity(wsId)); },
     links: async () => { if (eventId) setLinks(await api.fetchLinks(eventId)); },
     devices: async () => { if (wsId) setDevices(await api.fetchDevices(wsId)); },
   }), [eventId, wsId]);
+
+  /** Re-reads one attendee (row, departments, claims, attendance) and patches it into state. */
+  const refreshAttendee = useCallback(async (attendeeId: string) => {
+    const snapshot = await api.fetchAttendeeSnapshot(attendeeId);
+    setAttendeeData(prev => ({
+      attendees: snapshot.attendee ? upsertRow(prev.attendees, snapshot.attendee) : removeRow(prev.attendees, attendeeId),
+      departments: [...prev.departments.filter(row => row.attendee_id !== attendeeId), ...snapshot.departments],
+      claims: [...prev.claims.filter(row => row.attendee_id !== attendeeId), ...snapshot.claims],
+    }));
+    setAttendanceRows(prev => [...snapshot.attendance, ...prev.filter(row => row.attendee_id !== attendeeId)]
+      .sort((a, b) => b.checked_in_at.localeCompare(a.checked_in_at)));
+  }, []);
 
   // Fetch first, then apply in a callback; state is only set once data has arrived.
   const applyWorkspaceBundle = useCallback((workspace: string, bundle: Awaited<ReturnType<typeof fetchWorkspaceBundle>>) => {
@@ -194,31 +219,74 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     return () => { cancelled = true; };
   }, [eventId, applyEventBundle, reportError]);
 
-  // ---- realtime ------------------------------------------------------------
-  const timers = useRef<Partial<Record<Loader, number>>>({});
-  const schedule = useCallback((loader: Loader) => {
-    window.clearTimeout(timers.current[loader]);
-    timers.current[loader] = window.setTimeout(() => { void loaders[loader]().catch(console.error); }, 400);
-  }, [loaders]);
+  /** Full reload of everything for the current workspace and event. */
+  const resync = useCallback(async () => {
+    if (wsId) applyWorkspaceBundle(wsId, await fetchWorkspaceBundle(wsId));
+    if (eventId) applyEventBundle(eventId, await fetchEventBundle(eventId));
+  }, [wsId, eventId, applyWorkspaceBundle, applyEventBundle]);
+  const resyncRef = useRef(resync);
+  useEffect(() => { resyncRef.current = resync; }, [resync]);
 
+  // ---- realtime ------------------------------------------------------------
+  // Changes are applied from the realtime payload (one row each) instead of re-downloading whole
+  // lists, which keeps bandwidth tiny during busy check-in. After a dropped connection the screen
+  // does one full reload to catch anything it missed.
   useEffect(() => {
     if (!wsId) return;
     const filter = `workspace_id=eq.${wsId}`;
-    const tableLoaders: Array<[string, Loader]> = [
-      ['attendees', 'attendees'], ['access_claims', 'attendees'], ['attendance', 'attendance'],
-      ['biometric_events', 'biometric'], ['activity_log', 'activity'], ['registration_links', 'links'], ['biometric_devices', 'devices'],
-    ];
-    const channel = supabase.channel(`workspace-${wsId}`);
-    tableLoaders.forEach(([table, loader]) => {
-      channel.on('postgres_changes', { event: '*', schema: 'public', table, filter }, () => schedule(loader));
-    });
-    channel.subscribe();
-    const pending = timers.current;
-    return () => {
-      void supabase.removeChannel(channel);
-      Object.values(pending).forEach(id => window.clearTimeout(id));
+    const forEvent = (row: Row) => eventId !== null && row.event_id === eventId;
+    const channel = supabase.channel(`workspace-${wsId}-${eventId ?? 'none'}`);
+    const listen = (table: string, onUpsert: (row: Row) => void, onDelete: (old: Row) => void) => {
+      channel.on('postgres_changes', { event: 'INSERT', schema: 'public', table, filter }, payload => onUpsert(payload.new as Row));
+      channel.on('postgres_changes', { event: 'UPDATE', schema: 'public', table, filter }, payload => onUpsert(payload.new as Row));
+      // Delete events can't be filtered and only carry the primary key; unknown ids are no-ops.
+      channel.on('postgres_changes', { event: 'DELETE', schema: 'public', table }, payload => onDelete(payload.old as Row));
     };
-  }, [wsId, schedule]);
+
+    listen('attendees',
+      row => { if (forEvent(row)) setAttendeeData(prev => ({ ...prev, attendees: upsertRow(prev.attendees, row as api.AttendeeRow) })); },
+      old => setAttendeeData(prev => (prev.attendees.some(item => item.id === old.id) ? {
+        attendees: prev.attendees.filter(item => item.id !== old.id),
+        departments: prev.departments.filter(item => item.attendee_id !== old.id),
+        claims: prev.claims.filter(item => item.attendee_id !== old.id),
+      } : prev)));
+    listen('attendee_departments',
+      row => {
+        if (!forEvent(row)) return;
+        const link = row as api.AttendeeDepartmentRow;
+        setAttendeeData(prev => (prev.departments.some(item => item.attendee_id === link.attendee_id && item.department_id === link.department_id)
+          ? prev : { ...prev, departments: [...prev.departments, link] }));
+      },
+      old => setAttendeeData(prev => (prev.departments.some(item => item.attendee_id === old.attendee_id && item.department_id === old.department_id)
+        ? { ...prev, departments: prev.departments.filter(item => !(item.attendee_id === old.attendee_id && item.department_id === old.department_id)) }
+        : prev)));
+    listen('access_claims',
+      row => { if (forEvent(row)) setAttendeeData(prev => ({ ...prev, claims: upsertRow(prev.claims, row as api.AccessClaimRow, false) })); },
+      old => setAttendeeData(prev => (prev.claims.some(item => item.id === old.id) ? { ...prev, claims: removeRow(prev.claims, old.id) } : prev)));
+    listen('attendance',
+      row => { if (forEvent(row)) setAttendanceRows(prev => upsertRow(prev, row as api.AttendanceRow)); },
+      old => setAttendanceRows(prev => removeRow(prev, old.id)));
+    listen('biometric_events',
+      row => { if (forEvent(row)) setBiometricRows(prev => upsertRow(prev, row as api.BiometricEventRow, true, 200)); },
+      old => setBiometricRows(prev => removeRow(prev, old.id)));
+    listen('activity_log',
+      row => setActivities(prev => upsertRow(prev, api.mapActivity(row as Parameters<typeof api.mapActivity>[0]), true, 100)),
+      old => setActivities(prev => removeRow(prev, old.id)));
+    listen('registration_links',
+      row => { if (forEvent(row)) setLinks(prev => upsertRow(prev, api.mapLink(row as Parameters<typeof api.mapLink>[0]))); },
+      old => setLinks(prev => removeRow(prev, old.id)));
+    listen('biometric_devices',
+      row => setDevices(prev => upsertRow(prev, api.mapDevice(row as Parameters<typeof api.mapDevice>[0]), false)),
+      old => setDevices(prev => removeRow(prev, old.id)));
+
+    let subscribedBefore = false;
+    channel.subscribe(status => {
+      if (status !== 'SUBSCRIBED') return;
+      if (subscribedBefore) void resyncRef.current().catch(console.error);
+      subscribedBefore = true;
+    });
+    return () => { void supabase.removeChannel(channel); };
+  }, [wsId, eventId]);
 
   // ---- derived -------------------------------------------------------------
   const attendees = useMemo<Attendee[]>(() => {
@@ -317,10 +385,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     return { workspaceId: wsId, eventId };
   }, [wsId, eventId]);
 
-  const refresh = useCallback(async () => {
-    if (wsId) applyWorkspaceBundle(wsId, await fetchWorkspaceBundle(wsId));
-    if (eventId) applyEventBundle(eventId, await fetchEventBundle(eventId));
-  }, [wsId, eventId, applyWorkspaceBundle, applyEventBundle]);
+  const refresh = resync;
 
   const reloadConfig = useCallback(async () => {
     if (eventId) setConfig(await api.fetchEventConfig(eventId));
@@ -331,6 +396,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     members, executives, attendees, firstTimers, attendance, biometricLogs, biometricDevices: devices,
     adminActivities: activities, registrationLinks: scopedLinks, ...scopedConfig, workspaceMembers, myRoles,
     refresh,
+    refreshAttendee,
 
     saveEvent: async event => {
       const workspace = requireWorkspace();
@@ -375,21 +441,26 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     },
     updateAttendee: async (id, patch) => {
       await api.updateAttendee(id, patch);
-      await loaders.attendees();
+      await refreshAttendee(id);
     },
     deleteAttendee: async attendee => {
       await api.deleteAttendee(attendee.id, attendee.photoPath);
-      await Promise.all([loaders.attendees(), loaders.attendance()]);
+      setAttendeeData(prev => ({
+        attendees: removeRow(prev.attendees, attendee.id),
+        departments: prev.departments.filter(row => row.attendee_id !== attendee.id),
+        claims: prev.claims.filter(row => row.attendee_id !== attendee.id),
+      }));
+      setAttendanceRows(prev => prev.filter(row => row.attendee_id !== attendee.id));
     },
     recordManualCheckIn: async (attendeeId, method = 'manual') => {
       const scope = requireEvent();
       if (!userId) throw new Error('Not signed in.');
       await api.recordManualCheckIn(scope.workspaceId, scope.eventId, attendeeId, today, userId, method);
-      await loaders.attendance();
+      await refreshAttendee(attendeeId);
     },
     claimAccessItem: async (attendeeId, item) => {
       const result = await api.claimAccessItem(attendeeId, item);
-      await loaders.attendees();
+      await refreshAttendee(attendeeId);
       return result;
     },
     saveDevice: async device => {
