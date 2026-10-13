@@ -1,0 +1,44 @@
+# Keeps the Supabase Free-plan project from being paused for inactivity.
+# Supabase pauses free projects with too little database activity over 7 days;
+# a small query every day is enough. Not needed on a paid plan.
+#
+# Notes:
+# - Scheduled workflows only run from the default branch (main).
+# - GitHub disables schedules in repos with no commits for 60 days; it emails you first,
+#   and you can re-enable it from the Actions tab.
+# - Override the project with repository variables SUPABASE_URL / SUPABASE_PUBLISHABLE_KEY
+#   (Settings → Secrets and variables → Actions → Variables). The publishable key is public.
+name: Keep Supabase awake
+
+on:
+  schedule:
+    - cron: '17 6 * * *' # daily, 06:17 UTC
+  workflow_dispatch: {}
+
+permissions: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SUPABASE_URL: ${{ vars.SUPABASE_URL || 'https://kozrzsnbrexywyopdxwz.supabase.co' }}
+      SUPABASE_KEY: ${{ vars.SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_p20imHFVBfliRKkJvHT94w_Oa92-7Pv' }}
+    steps:
+      - name: Query the database
+        run: |
+          # Calls a read-only public function with a dummy token: it runs a real database
+          # query (counts as activity) and returns null without exposing any data.
+          for attempt in 1 2 3; do
+            status=$(curl -s -o response.json -w '%{http_code}' -X POST \
+              "$SUPABASE_URL/rest/v1/rpc/get_registration_form" \
+              -H "apikey: $SUPABASE_KEY" \
+              -H "Content-Type: application/json" \
+              -d '{"p_token":"keepalive"}')
+            echo "Attempt $attempt: HTTP $status"
+            if [ "$status" = "200" ]; then exit 0; fi
+            sleep 20
+          done
+          echo "::error::Supabase did not respond with 200 (HTTP $status). A 540 means the project is already paused — restore it in the dashboard."
+          cat response.json
+          exit 1

@@ -62,7 +62,7 @@ function mapProgramme(row: TableRow<'programmes'>): Programme {
   };
 }
 
-function mapDevice(row: TableRow<'biometric_devices'>): BiometricDevice {
+export function mapDevice(row: TableRow<'biometric_devices'>): BiometricDevice {
   return {
     id: row.id, name: row.name, vendor: row.vendor, model: row.model, serialNumber: row.serial_number,
     connectionType: row.connection_type, serviceUrl: row.service_url, status: row.status,
@@ -70,11 +70,11 @@ function mapDevice(row: TableRow<'biometric_devices'>): BiometricDevice {
   };
 }
 
-function mapActivity(row: TableRow<'activity_log'>): AdminActivityLog {
+export function mapActivity(row: TableRow<'activity_log'>): AdminActivityLog {
   return { id: row.id, actorName: row.actor_name ?? 'Public registration', action: row.action, target: row.target, createdAt: row.created_at };
 }
 
-function mapLink(row: TableRow<'registration_links'>): RegistrationLink {
+export function mapLink(row: TableRow<'registration_links'>): RegistrationLink {
   const expired = (row.expires_at && new Date(row.expires_at) <= new Date()) || (row.max_uses !== null && row.uses >= row.max_uses);
   return {
     id: row.id, type: row.kind, token: row.token, url: registrationUrl(row.kind, row.token), label: row.label ?? '',
@@ -216,6 +216,23 @@ export async function fetchAttendeeData(eventId: string) {
     fetchAll<AccessClaimRow>((from, to) => supabase.from('access_claims').select('*').eq('event_id', eventId).range(from, to)),
   ]);
   return { attendees, departments, claims };
+}
+
+/** Everything about one attendee, used to patch local state after an action (a few hundred bytes). */
+export async function fetchAttendeeSnapshot(attendeeId: string) {
+  const [attendee, departments, claims, attendance] = await Promise.all([
+    supabase.from('attendees').select('*').eq('id', attendeeId).maybeSingle(),
+    supabase.from('attendee_departments').select('*').eq('attendee_id', attendeeId),
+    supabase.from('access_claims').select('*').eq('attendee_id', attendeeId),
+    supabase.from('attendance').select('*').eq('attendee_id', attendeeId),
+  ]);
+  for (const result of [attendee, departments, claims, attendance]) if (result.error) fail(result.error);
+  return {
+    attendee: attendee.data as AttendeeRow | null,
+    departments: (departments.data ?? []) as AttendeeDepartmentRow[],
+    claims: (claims.data ?? []) as AccessClaimRow[],
+    attendance: (attendance.data ?? []) as AttendanceRow[],
+  };
 }
 
 export async function fetchAttendance(eventId: string) {

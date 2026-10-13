@@ -46,7 +46,7 @@ function readStoredDevice() {
 export function AdminAttendance() {
   const {
     attendees, attendance, biometricLogs, biometricDevices, today,
-    claimAccessItem, recordManualCheckIn, saveDevice, deleteDevice, reportDeviceStatus,
+    claimAccessItem, recordManualCheckIn, saveDevice, deleteDevice, reportDeviceStatus, refreshAttendee,
   } = useAppData();
   const { addToast } = useToast();
   const canVerify = usePermission('verify');
@@ -167,6 +167,7 @@ export function AdminAttendance() {
         nfiq: result.nfiq ?? undefined, deviceId: device?.id, consent: true,
       });
       setEnrollments(selected.id, await fetchEnrollments(selected.id));
+      void refreshAttendee(selected.id).catch(() => undefined);
       setForceEnroll(false);
       setOutcome({ tone: 'success', message: `${FINGERS.find(item => item.id === finger)?.label} enrolled (quality ${result.imageQuality}). Now capture again to verify and check in.` });
     } catch (error) {
@@ -196,6 +197,7 @@ export function AdminAttendance() {
       }
       const result = await recordBiometricVerification({ attendeeId: selected.id, result: 'success', matchScore: best.score, threshold: MATCH_THRESHOLD, enrollmentId: best.enrollmentId, deviceId: device?.id });
       setOutcome({ tone: result.ok ? 'success' : 'warning', message: result.message, score: best.score });
+      void refreshAttendee(selected.id).catch(() => undefined);
     } catch (error) {
       setOutcome({ tone: 'error', message: error instanceof Error ? error.message : 'Verification failed' });
     } finally {
