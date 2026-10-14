@@ -23,15 +23,26 @@ export interface PendingAuthLink {
  */
 function consumeAuthFragment(): PendingAuthLink | null {
   if (typeof window === 'undefined') return null;
-  const fragment = window.location.hash.replace(/^#\/?/, '');
-  if (!/(^|&)(access_token|error_description)=/.test(fragment)) return null;
-  const params = new URLSearchParams(fragment);
-  window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#/`);
+  // Supabase appends "#access_token=..." to the redirect address. When that address already has a
+  // route ("/#/login"), the result is "#/login#access_token=..." (or "&access_token="), so search
+  // the whole hash (and the query, where some errors land) rather than only its start.
+  const source = `${window.location.hash}&${window.location.search}`;
+  const read = (name: string) => {
+    const match = source.match(new RegExp(`[#&?/]${name}=([^&#]*)`));
+    return match ? decodeURIComponent(match[1].replace(/\+/g, ' ')) : null;
+  };
+  const accessToken = read('access_token');
+  const error = read('error_description');
+  if (!accessToken && !error) return null;
+  const search = new URLSearchParams(window.location.search);
+  ['error', 'error_code', 'error_description'].forEach(name => search.delete(name));
+  const query = search.toString();
+  window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}#/`);
   return {
-    type: params.get('type'),
-    accessToken: params.get('access_token'),
-    refreshToken: params.get('refresh_token'),
-    error: params.get('error_description'),
+    type: read('type'),
+    accessToken,
+    refreshToken: read('refresh_token'),
+    error,
   };
 }
 
