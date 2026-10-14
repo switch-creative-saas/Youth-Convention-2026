@@ -8,6 +8,8 @@
 //
 // Permission checks and role assignment run with the CALLER's token (same RLS + SECURITY DEFINER
 // checks as the app). The service-role key is only used to create the login / send the invite.
+// Invite links return to the APP_URL secret when set (otherwise the caller's app address);
+// that address must also be listed under Auth → URL Configuration → Redirect URLs.
 import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
 
 const ROLES = ['admin', 'registration_desk', 'verification_operator', 'food_distributor', 'souvenir_distributor', 'activity_coordinator', 'viewer'] as const;
@@ -86,7 +88,8 @@ Deno.serve(async req => {
   const email = isEmail(body.email) ? body.email.trim().toLowerCase() : null;
   if (!email) return json({ error: 'Enter a valid email address.' }, 400);
   const name = typeof body.name === 'string' && body.name.trim() ? body.name.trim().slice(0, 120) : undefined;
-  const redirectTo = safeRedirect(body.redirectTo);
+  // Prefer the deployed app (APP_URL secret) so invite links never point at an admin's localhost.
+  const redirectTo = safeRedirect(Deno.env.get('APP_URL')) ?? safeRedirect(body.redirectTo);
   const admin = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
 
   const { data: isPlatformAdmin, error: platformError } = await caller.rpc('is_platform_admin');
