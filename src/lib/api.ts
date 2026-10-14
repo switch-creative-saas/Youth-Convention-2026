@@ -35,7 +35,7 @@ async function fetchAll<T>(page: (from: number, to: number) => PromiseLike<{ dat
 // ---------------------------------------------------------------------------
 
 export function mapWorkspace(row: TableRow<'workspaces'>): Workspace {
-  return { id: row.id, name: row.name, slug: row.slug, codePrefix: row.code_prefix, timezone: row.timezone, isActive: row.is_active };
+  return { id: row.id, name: row.name, slug: row.slug, codePrefix: row.code_prefix, timezone: row.timezone, isActive: row.is_active, ownerId: row.owner_id };
 }
 
 export function mapEvent(row: TableRow<'events'>): ConventionEvent {

@@ -31,6 +31,8 @@ export interface Workspace {
   codePrefix: string;
   timezone: string;
   isActive: boolean;
+  /** The admin the platform owner set up; only the platform owner can remove their admin role. */
+  ownerId: string | null;
 }
 
 export interface ConventionEvent {
@@ -190,9 +192,15 @@ export interface Toast {
   duration?: number;
 }
 
+/** Option text in role pickers: spells out that admin is full access. */
+export function roleOptionLabel(role: WorkspaceRole) {
+  return role === 'admin' ? 'Admin (full access)' : WORKSPACE_ROLE_LABELS[role];
+}
+
 export const WORKSPACE_ROLE_LABELS: Record<WorkspaceRole, string> = {
   admin: 'Admin',
   registration_desk: 'Registration desk',
+  link_manager: 'Link generator',
   verification_operator: 'Verification operator',
   food_distributor: 'Food distributor',
   souvenir_distributor: 'Souvenir distributor',

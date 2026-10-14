@@ -213,7 +213,7 @@ export type Database = {
       registration_kind: "member" | "executive"
       verification_method: "biometric" | "qr_code" | "manual"
       workspace_role:
-        | "admin" | "registration_desk" | "verification_operator" | "food_distributor"
+        | "admin" | "registration_desk" | "link_manager" | "verification_operator" | "food_distributor"
         | "souvenir_distributor" | "activity_coordinator" | "viewer"
     }
     CompositeTypes: {

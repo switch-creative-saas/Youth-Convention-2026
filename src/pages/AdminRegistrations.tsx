@@ -45,6 +45,7 @@ export function AdminRegistrations() {
   };
   const { addToast } = useToast();
   const canRegister = usePermission('register');
+  const canCreateLinks = usePermission('create_links');
   const canManage = usePermission('manage');
   const [kind, setKind] = useState<RegistrationKind>('member');
   const [search, setSearch] = useState('');
@@ -105,7 +106,7 @@ export function AdminRegistrations() {
 
   return (
     <AdminLayout pageTitle="Registration Management" pageSubtitle="Create registration links and review member and executive registrations.">
-      {canRegister && (
+      {canCreateLinks && (
         <motion.div className="portal-card mb-6 min-w-0 p-5 sm:p-8" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
           <h3 className="font-display font-semibold text-lg text-portal-ink dark:text-white mb-6">Generate Registration Links</h3>
           <div className="flex min-w-0 flex-col gap-4 sm:flex-row">
@@ -151,7 +152,7 @@ export function AdminRegistrations() {
                       <div className="flex items-center gap-1">
                         <button title="Copy link" onClick={() => { void navigator.clipboard.writeText(link.url); addToast({ type: 'success', title: 'Copied!' }); }} className="p-1.5 rounded-lg hover:bg-portal-surface transition-colors"><Copy className="w-4 h-4 text-portal-label" /></button>
                         <button title="Show QR code" onClick={() => setQrUrl(link.url)} className="p-1.5 rounded-lg hover:bg-portal-surface transition-colors"><QrCode className="w-4 h-4 text-portal-label" /></button>
-                        {canRegister && (
+                        {canCreateLinks && (
                           <button title={link.status === 'inactive' ? 'Reactivate link' : 'Deactivate link'} disabled={busy} onClick={() => void run(() => setRegistrationLinkActive(link.id, link.status === 'inactive'), 'Could not update link')} className="p-1.5 rounded-lg hover:bg-portal-surface transition-colors">
                             {link.status === 'inactive' ? <RotateCcw className="w-4 h-4 text-portal-label" /> : <Ban className="w-4 h-4 text-red-400" />}
                           </button>

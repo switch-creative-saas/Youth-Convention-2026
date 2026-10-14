@@ -11,9 +11,10 @@ import { useToast } from '@/contexts/ToastContext';
 import { usePermission } from '@/hooks/usePermission';
 import { downloadCanvas, initials, seriesColor, timeAgo } from '@/lib/format';
 import { InviteLinkDialog } from '@/components/InviteLinkDialog';
-import { WORKSPACE_ROLE_LABELS, type Attendee, type RegistrationKind, type WorkspaceRole } from '@/types';
+import { WORKSPACE_ROLE_LABELS, roleOptionLabel, type Attendee, type RegistrationKind, type WorkspaceRole } from '@/types';
 
-const STAFF_ROLES: WorkspaceRole[] = (Object.keys(WORKSPACE_ROLE_LABELS) as WorkspaceRole[]).filter(role => role !== 'admin');
+// Staff roles first (the default pick), then admin (full access).
+const ACCESS_ROLES: WorkspaceRole[] = [...(Object.keys(WORKSPACE_ROLE_LABELS) as WorkspaceRole[]).filter(role => role !== 'admin'), 'admin'];
 
 const biometricStatusLabel = (status?: string) => {
   if (status === 'verified_checked_in') return { label: 'Biometric Verified', className: 'status-badge-green' };
@@ -37,6 +38,7 @@ export function AdminDashboard() {
   const { addToast } = useToast();
   const navigate = useNavigate();
   const canRegister = usePermission('register');
+  const canCreateLinks = usePermission('create_links');
   const canManage = usePermission('manage');
   const activeLeadershipRoles = useMemo(() => leadershipRoles.filter(role => role.active).map(role => role.name), [leadershipRoles]);
   const [accessRole, setAccessRole] = useState<Record<string, WorkspaceRole>>({});
@@ -45,7 +47,7 @@ export function AdminDashboard() {
 
   const rolesFor = (email: string) => workspaceMembers.filter(member => member.email.toLowerCase() === email.toLowerCase()).map(member => member.role);
 
-  const availableRoles = (email: string) => STAFF_ROLES.filter(role => !rolesFor(email).includes(role));
+  const availableRoles = (email: string) => rolesFor(email).includes('admin') ? [] : ACCESS_ROLES.filter(role => !rolesFor(email).includes(role));
 
   const giveAccess = async (exec: Attendee, role: WorkspaceRole) => {
     setInvitingId(exec.id);
@@ -89,7 +91,7 @@ export function AdminDashboard() {
   }, [bands, members]);
 
   const generateLink = async (type: RegistrationKind, withQr = false) => {
-    if (!canRegister) {
+    if (!canCreateLinks) {
       addToast({ type: 'warning', title: 'You do not have permission to create registration links.' });
       return;
     }
@@ -336,7 +338,7 @@ export function AdminDashboard() {
                               onChange={event => setAccessRole(prev => ({ ...prev, [exec.id]: event.target.value as WorkspaceRole }))}
                               className="portal-focus min-h-10 rounded-full border border-portal-line bg-portal-from px-3 text-xs text-portal-ink"
                             >
-                              {availableRoles(exec.email).map(role => <option key={role} value={role}>{WORKSPACE_ROLE_LABELS[role]}</option>)}
+                              {availableRoles(exec.email).map(role => <option key={role} value={role}>{roleOptionLabel(role)}</option>)}
                             </select>
                             <button
                               onClick={() => void giveAccess(exec, accessRole[exec.id] && availableRoles(exec.email).includes(accessRole[exec.id]) ? accessRole[exec.id] : availableRoles(exec.email)[0])}

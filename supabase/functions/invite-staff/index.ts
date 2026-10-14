@@ -1,8 +1,8 @@
 // invite-staff: lets workspace admins give people dashboard access without opening Supabase.
 //
 // POST { action: 'assign_role', workspaceId, email, role, name?, redirectTo? }
-//   Workspace admin (or platform admin) invites/creates the login and assigns a staff role.
-//   Only platform admins may assign 'admin'.
+//   Workspace admin (or platform admin) invites/creates the login and assigns a role,
+//   including 'admin' (full access to that workspace only).
 // POST { action: 'create_workspace', name, slug, codePrefix, email, ownerName?, redirectTo? }
 //   Platform admin creates a workspace and invites its admin in one step.
 //
@@ -12,7 +12,7 @@
 // that address must also be listed under Auth → URL Configuration → Redirect URLs.
 import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
 
-const ROLES = ['admin', 'registration_desk', 'verification_operator', 'food_distributor', 'souvenir_distributor', 'activity_coordinator', 'viewer'] as const;
+const ROLES = ['admin', 'registration_desk', 'link_manager', 'verification_operator', 'food_distributor', 'souvenir_distributor', 'activity_coordinator', 'viewer'] as const;
 type Role = typeof ROLES[number];
 
 const corsHeaders = {
@@ -123,7 +123,6 @@ Deno.serve(async req => {
     const { data: isAdmin, error: roleError } = await caller.rpc('has_workspace_role', { ws: workspaceId, roles: ['admin'] });
     if (roleError) return json({ error: roleError.message }, 500);
     if (!isAdmin) return json({ error: 'Only workspace admins can give dashboard access.' }, 403);
-    if (role === 'admin' && !isPlatformAdmin) return json({ error: 'Only the platform owner can make someone an admin.' }, 403);
 
     const result = await ensureUser(admin, email, name, redirectTo);
     const { error } = await caller.rpc('assign_workspace_role', { p_workspace: workspaceId, p_email: email, p_role: role });
