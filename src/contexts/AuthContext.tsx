@@ -14,8 +14,8 @@ interface AuthContextType {
   isPlatformAdmin: boolean;
   memberships: Membership[];
   isLoading: boolean;
-  /** Set after the user opens an invite or password-reset link: they must choose a password. */
-  passwordRecovery: false | 'invite' | 'recovery';
+  /** Set after the user opens an email link: invite/recovery must choose a password; magiclink may skip. */
+  passwordRecovery: PasswordSetupKind;
   /** Error carried back on an expired or invalid email link. */
   authLinkError: string | null;
   login: (email: string, password: string) => Promise<{ success: boolean; role?: UserRole; error?: string }>;
@@ -23,6 +23,16 @@ interface AuthContextType {
   requestPasswordReset: (email: string) => Promise<void>;
   updatePassword: (password: string) => Promise<void>;
   refreshProfile: () => Promise<void>;
+  /** Leaves the optional set-password screen shown after a magic-link sign-in. */
+  dismissPasswordSetup: () => void;
+}
+
+export type PasswordSetupKind = false | 'invite' | 'recovery' | 'magiclink';
+
+function setupKindFromLink(): PasswordSetupKind {
+  if (!pendingAuthLink?.accessToken) return false;
+  const type = pendingAuthLink.type;
+  return type === 'invite' || type === 'recovery' || type === 'magiclink' ? type : false;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -60,10 +70,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [memberships, setMemberships] = useState<Membership[]>([]);
   const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [passwordRecovery, setPasswordRecovery] = useState<false | 'invite' | 'recovery'>(
-    pendingAuthLink?.accessToken && (pendingAuthLink.type === 'invite' || pendingAuthLink.type === 'recovery') ? pendingAuthLink.type : false,
-  );
-  const [authLinkError] = useState(() => pendingAuthLink?.error ?? null);
+  const [passwordRecovery, setPasswordRecovery] = useState<PasswordSetupKind>(setupKindFromLink);
+  const [authLinkError, setAuthLinkError] = useState(() => pendingAuthLink?.error ?? null);
 
   const applySession = useCallback(async (next: Session | null) => {
     setSession(next);
@@ -89,7 +97,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const start = async () => {
       if (pendingAuthLink?.accessToken && pendingAuthLink.refreshToken) {
         const { error } = await supabase.auth.setSession({ access_token: pendingAuthLink.accessToken, refresh_token: pendingAuthLink.refreshToken });
-        if (error) console.error('Unable to use the email link', error);
+        if (error) {
+          // Expired or already-used link: skip the password screen and explain on the login page.
+          setPasswordRecovery(false);
+          setAuthLinkError('the link is invalid or has expired');
+        }
       }
       const { data } = await supabase.auth.getSession();
       await applySession(data.session);
@@ -135,6 +147,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setPasswordRecovery(false);
   }, []);
 
+  const dismissPasswordSetup = useCallback(() => setPasswordRecovery(false), []);
+
   const refreshProfile = useCallback(async () => {
     const { data } = await supabase.auth.getSession();
     await applySession(data.session);
@@ -143,7 +157,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return (
     <AuthContext.Provider value={{
       user: session ? user : null, role, isPlatformAdmin, memberships, isLoading, passwordRecovery, authLinkError,
-      login, logout, requestPasswordReset, updatePassword, refreshProfile,
+      login, logout, requestPasswordReset, updatePassword, refreshProfile, dismissPasswordSetup,
     }}>
       {children}
     </AuthContext.Provider>
