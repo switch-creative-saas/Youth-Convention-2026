@@ -10,9 +10,10 @@ import { PortalInput, PortalSelect, formLabelClass } from '@/components/ui-kit/F
 import { formatDateTime } from '@/lib/format';
 import { InviteLinkDialog } from '@/components/InviteLinkDialog';
 import type { InviteResult } from '@/lib/api';
-import { WORKSPACE_ROLE_LABELS, type WorkspaceRole } from '@/types';
+import { WORKSPACE_ROLE_LABELS, roleOptionLabel, type WorkspaceRole } from '@/types';
 
-const STAFF_ROLES = (Object.keys(WORKSPACE_ROLE_LABELS) as WorkspaceRole[]).filter(role => role !== 'admin');
+// Admin = full access to this workspace; the rest are limited staff roles.
+const ROLE_OPTIONS = Object.keys(WORKSPACE_ROLE_LABELS) as WorkspaceRole[];
 
 export function AdminAccessManagement() {
   const { workspaces, currentWorkspace, workspaceMembers, adminActivities, inviteStaff, revokeRole, createWorkspace } = useAppData();
@@ -25,7 +26,6 @@ export function AdminAccessManagement() {
   const [busy, setBusy] = useState(false);
   const [workspaceForm, setWorkspaceForm] = useState({ name: '', slug: '', ownerEmail: '', ownerName: '', codePrefix: 'MOSYF' });
 
-  const roleOptions: WorkspaceRole[] = isPlatformAdmin ? ['admin', ...STAFF_ROLES] : STAFF_ROLES;
   const admins = workspaceMembers.filter(member => member.role === 'admin');
 
   const run = async (action: () => Promise<void>, success: string, failure: string) => {
@@ -134,7 +134,7 @@ export function AdminAccessManagement() {
               <div><label className={formLabelClass}>Name</label><PortalInput value={staffName} onChange={e => setStaffName(e.target.value)} placeholder="Optional" /></div>
               <div><label className={formLabelClass}>Role</label>
                 <PortalSelect value={role} onChange={e => setRole(e.target.value as WorkspaceRole)}>
-                  {roleOptions.map(option => <option key={option} value={option}>{WORKSPACE_ROLE_LABELS[option]}</option>)}
+                  {ROLE_OPTIONS.map(option => <option key={option} value={option}>{roleOptionLabel(option)}</option>)}
                 </PortalSelect>
               </div>
               <PillButton variant="dark" type="submit" disabled={busy}>{busy ? 'Sending…' : 'Give access'}</PillButton>
@@ -143,7 +143,8 @@ export function AdminAccessManagement() {
             <div className="mt-6 space-y-3">
               {workspaceMembers.length === 0 && <p className="text-sm text-portal-label">No staff assigned yet.</p>}
               {workspaceMembers.map(member => {
-                const locked = member.role === 'admin' && !isPlatformAdmin;
+                // The workspace owner's admin role can only be removed by the platform owner.
+                const locked = member.role === 'admin' && member.userId === currentWorkspace.ownerId && !isPlatformAdmin;
                 return (
                   <div key={`${member.userId}-${member.role}`} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-portal-line px-4 py-3">
                     <div className="min-w-0">
