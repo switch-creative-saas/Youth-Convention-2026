@@ -157,7 +157,7 @@ Deno.serve(async req => {
       'Idempotency-Key': force ? `registration-${attendee.id}-${Date.now()}` : `registration-${attendee.id}`,
     },
     body: JSON.stringify({
-      from: Deno.env.get('RESEND_FROM_EMAIL') || 'MOSYF Youth Convention <youth.fellowship@mountainofsolution.org>',
+      from: Deno.env.get('RESEND_FROM_EMAIL') || 'MOSYF Youth Convention <convention@mountainofsolution.org>',
       to: [attendee.email],
       reply_to: replyTo,
       template: { id: Deno.env.get('RESEND_TEMPLATE_ID') || 'portal-registration-confirmation', variables },
