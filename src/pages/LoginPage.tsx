@@ -81,7 +81,7 @@ export function LoginPage() {
       <form onSubmit={sendReset} className="w-full max-w-sm rounded-[28px] border border-portal-line bg-portal-from p-6 shadow-surface">
         <h2 id="forgot-password-title" className="text-lg font-semibold text-portal-ink">Reset your password</h2>
         {resetState === 'sent' ? (
-          <p className="mt-2 text-sm leading-6 text-portal-label">If an account exists for <span className="font-medium text-portal-ink">{resetEmail}</span>, a reset link is on its way. Open it on this device to choose a new password.</p>
+          <p className="mt-2 text-sm leading-6 text-portal-label">If an account exists for <span className="font-medium text-portal-ink">{resetEmail}</span>, a reset link is on its way. Open it on any device to choose a new password.</p>
         ) : (
           <>
             <p className="mt-2 text-sm leading-6 text-portal-label">Enter your account email and we'll send you a link to set a new password.</p>

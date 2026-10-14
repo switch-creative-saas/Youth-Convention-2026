@@ -148,7 +148,7 @@ Deno.serve(async req => {
     }
   }
 
-  const replyTo = Deno.env.get('RESEND_REPLY_TO');
+  const replyTo = Deno.env.get('RESEND_REPLY_TO') || 'youth.fellowship@mountainofsolution.org';
   const response = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
@@ -157,9 +157,9 @@ Deno.serve(async req => {
       'Idempotency-Key': force ? `registration-${attendee.id}-${Date.now()}` : `registration-${attendee.id}`,
     },
     body: JSON.stringify({
-      from: Deno.env.get('RESEND_FROM_EMAIL') || 'Youth Convention <convention@mountainofsolution.org>',
+      from: Deno.env.get('RESEND_FROM_EMAIL') || 'MOSYF Youth Convention <youth.fellowship@mountainofsolution.org>',
       to: [attendee.email],
-      ...(replyTo ? { reply_to: replyTo } : {}),
+      reply_to: replyTo,
       template: { id: Deno.env.get('RESEND_TEMPLATE_ID') || 'portal-registration-confirmation', variables },
       ...(attachments.length ? { attachments } : {}),
       tags: [{ name: 'type', value: 'registration_confirmation' }, { name: 'kind', value: attendee.kind }],

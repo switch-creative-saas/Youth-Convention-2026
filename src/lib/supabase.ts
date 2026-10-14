@@ -16,9 +16,10 @@ export interface PendingAuthLink {
 }
 
 /**
- * Invite and admin-generated links return tokens in the URL fragment (#access_token=...),
- * which collides with the HashRouter. Read them before the router or client sees them,
- * then reset the fragment to the app root. AuthContext turns them into a session.
+ * Every email link (invite, password reset, magic link, signup confirmation) returns tokens in
+ * the URL fragment (#access_token=...&type=...), which collides with the HashRouter. Read them
+ * before the router or client sees them, then reset the fragment to the app root.
+ * AuthContext turns them into a session and shows the set-password screen when needed.
  */
 function consumeAuthFragment(): PendingAuthLink | null {
   if (typeof window === 'undefined') return null;
@@ -38,11 +39,13 @@ export const pendingAuthLink = consumeAuthFragment();
 
 export const supabase = createClient<Database>(url, key, {
   auth: {
-    // PKCE puts the auth code in the query string, which works alongside the HashRouter.
-    flowType: 'pkce',
+    // Implicit flow: email links carry tokens in the fragment, handled by consumeAuthFragment above.
+    // Unlike PKCE this works when the link is opened on a different device or browser than the one
+    // that requested it (e.g. "Forgot password?" on a laptop, email opened on a phone).
+    flowType: 'implicit',
     persistSession: true,
     autoRefreshToken: true,
-    detectSessionInUrl: true,
+    detectSessionInUrl: false,
   },
 });
 
