@@ -1,6 +1,6 @@
 import { useParams } from 'react-router-dom';
 import { motion, useReducedMotion } from 'framer-motion';
-import { Bug, Code2, Layers, MessageCircle, Palette, Plug, Smartphone } from 'lucide-react';
+import { ArrowUpRight, Bug, Code2, Layers, MessageCircle, Palette, Plug, Smartphone } from 'lucide-react';
 import { AttendeePortalLayout } from '@/components/attendee/AttendeePortalLayout';
 
 const services = [
@@ -11,6 +11,17 @@ const services = [
   { title: 'API & System Integration', icon: Plug, description: 'Connect your application to APIs, payment systems, authentication services, databases and third-party platforms.', message: "Hello, I'm interested in API and System Integration services." },
   { title: 'Custom Software', icon: Layers, description: "Need something specific? Let's design and build a solution around your exact requirements.", message: "Hello, I'd like to discuss building a custom software solution." },
 ];
+
+const PORTFOLIO_URL = 'https://fredrickakojuru.vercel.app';
+
+function PortfolioLink({ variant = 'outline' }: { variant?: 'outline' | 'light' }) {
+  return (
+    <a href={PORTFOLIO_URL} target="_blank" rel="noopener noreferrer" aria-label="View the developer's portfolio (opens in a new tab)"
+      className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-full border px-5 py-2.5 text-sm font-semibold transition hover:-translate-y-0.5 hover:shadow-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-portal-accent focus-visible:ring-offset-2 dark:focus-visible:ring-offset-portal-from motion-reduce:transition-none ${variant === 'light' ? 'border-white/30 text-white' : 'border-portal-line text-portal-ink'}`}>
+      View my portfolio<ArrowUpRight aria-hidden="true" className="h-4 w-4" />
+    </a>
+  );
+}
 
 function WhatsAppLink({ message, service, variant = 'dark' }: { message: string; service?: string; variant?: 'dark' | 'accent' }) {
   return (
@@ -31,6 +42,10 @@ export function HireDeveloperPage() {
         <motion.div initial={reducedMotion ? false : { opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }} className="mb-8 sm:mb-10">
           <h1 className="text-[40px] font-light leading-[1.12] text-portal-ink sm:text-[48px]">Hire a Developer</h1>
           <p className="mt-2 text-portal-label dark:text-portal-label">Let's build something great together.</p>
+          <div className="mt-5 flex flex-wrap gap-3">
+            <PortfolioLink />
+            <WhatsAppLink message="Hello, I saw your portfolio and would like to discuss a project." />
+          </div>
         </motion.div>
         <div className="grid gap-4 md:grid-cols-2">
           {services.map(({ title, icon: Icon, description, message }, index) => (
@@ -49,7 +64,10 @@ export function HireDeveloperPage() {
         </div>
         <footer className="mt-10 flex flex-wrap items-center justify-between gap-5 rounded-[28px] bg-portal-dark p-6 text-white sm:p-8">
           <div><p className="text-xs font-semibold text-white/65">HAVE A PROJECT IN MIND?</p><p className="mt-2 text-xl font-medium">Let's talk about it.</p></div>
-          <WhatsAppLink variant="accent" message="Hello, I have a project in mind and would like to discuss it with you." />
+          <div className="flex flex-wrap gap-3">
+            <PortfolioLink variant="light" />
+            <WhatsAppLink variant="accent" message="Hello, I have a project in mind and would like to discuss it with you." />
+          </div>
         </footer>
     </AttendeePortalLayout>
   );
