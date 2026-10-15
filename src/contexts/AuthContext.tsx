@@ -37,12 +37,26 @@ function setupKindFromLink(): PasswordSetupKind {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const PROFILE_TIMEOUT_MS = 15000;
+const PROFILE_TIMEOUT_MESSAGE = 'Could not load your dashboard access. Check your connection, refresh the page and try again.';
+
+/** Rejects if the promise takes too long, so sign-in shows an error instead of spinning forever. */
+function withTimeout<T>(promise: PromiseLike<T>, ms: number) {
+  return new Promise<T>((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new Error(PROFILE_TIMEOUT_MESSAGE)), ms);
+    promise.then(
+      value => { window.clearTimeout(timer); resolve(value); },
+      error => { window.clearTimeout(timer); reject(error); },
+    );
+  });
+}
+
 async function loadProfile(session: Session) {
   const authUser = session.user;
-  const [{ data: platform, error: platformError }, { data: rows, error: membershipError }] = await Promise.all([
+  const [{ data: platform, error: platformError }, { data: rows, error: membershipError }] = await withTimeout(Promise.all([
     supabase.from('platform_admins').select('user_id').eq('user_id', authUser.id).maybeSingle(),
     supabase.from('workspace_members').select('workspace_id, role').eq('user_id', authUser.id),
-  ]);
+  ]), PROFILE_TIMEOUT_MS);
   if (platformError) throw platformError;
   if (membershipError) throw membershipError;
 
@@ -78,16 +92,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!next) {
       setUser(null); setRole(null); setMemberships([]); setIsPlatformAdmin(false);
       setIsLoading(false);
-      return null;
+      return { profile: null, error: null };
     }
     try {
       const profile = await loadProfile(next);
       setUser(profile.user); setRole(profile.role); setMemberships(profile.memberships); setIsPlatformAdmin(profile.isPlatformAdmin);
-      return profile;
+      return { profile, error: null };
     } catch (error) {
       console.error('Unable to load profile', error);
       setUser(null); setRole(null); setMemberships([]); setIsPlatformAdmin(false);
-      return null;
+      return { profile: null, error: errorMessage(error, PROFILE_TIMEOUT_MESSAGE) };
     } finally {
       setIsLoading(false);
     }
@@ -123,10 +137,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim().toLowerCase(), password });
     if (error || !data.session) return { success: false, error: error?.message ?? 'Sign in failed.' };
     setIsLoading(true);
-    const profile = await applySession(data.session);
+    const { profile, error: profileError } = await applySession(data.session);
     if (!profile?.role) {
       await supabase.auth.signOut();
-      return { success: false, error: 'This account has not been given access to any convention dashboard.' };
+      return { success: false, error: profileError ?? 'This account has not been given access to any convention dashboard.' };
     }
     return { success: true, role: profile.role };
   }, [applySession]);
