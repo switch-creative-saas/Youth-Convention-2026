@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, processLock } from '@supabase/supabase-js';
 import type { Database } from '@/types/database';
 
 const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
@@ -54,6 +54,9 @@ export const supabase = createClient<Database>(url, key, {
     // Unlike PKCE this works when the link is opened on a different device or browser than the one
     // that requested it (e.g. "Forgot password?" on a laptop, email opened on a phone).
     flowType: 'implicit',
+    // Per-tab lock instead of the default cross-tab navigator lock. A frozen background tab (common on
+    // phones) or another open tab could hold the shared lock forever, so signing in here would hang.
+    lock: processLock,
     persistSession: true,
     autoRefreshToken: true,
     detectSessionInUrl: false,
