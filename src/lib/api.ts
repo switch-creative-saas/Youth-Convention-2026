@@ -2,7 +2,7 @@ import { appBaseUrl, errorMessage, registrationUrl, supabase } from '@/lib/supab
 import type { Json, TableRow } from '@/types/database';
 import type {
   AccessItemType, AdminActivityLog, BiometricDevice, BiometricEventResult, ChurchGroup, ConventionEvent,
-  FingerprintFinger, ManagedListEntity, ManagedListItem, Programme, RegistrationKind, RegistrationLink,
+  FingerprintFinger, ManagedListEntity, ManagedListItem, Programme, RegistrationKind, RegistrationLink, TimetableSession,
   VerificationMethod, Workspace, WorkspaceMember, WorkspaceRole,
 } from '@/types';
 
@@ -484,6 +484,21 @@ export interface AttendeeStatus {
   workspaceSlug: string;
   accessClaims: Partial<Record<AccessItemType, string>>;
   attendance: { date: string; checkedInAt: string; programme: string | null }[];
+  programmes: TimetableSession[];
+}
+
+export interface EventTimetable {
+  workspaceName: string;
+  workspaceSlug: string;
+  event: { name: string; theme: string | null; scripture: string | null; venue: string | null; startDate: string; endDate: string };
+  programmes: TimetableSession[];
+}
+
+/** Public timetable of a workspace's active convention (null when there is none). */
+export async function getEventTimetable(workspaceSlug: string) {
+  const { data, error } = await supabase.rpc('get_event_timetable', { p_workspace_slug: workspaceSlug });
+  if (error) fail(error);
+  return (data as unknown as EventTimetable | null) ?? null;
 }
 
 export async function getAttendeeStatus(token: string) {

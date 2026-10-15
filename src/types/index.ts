@@ -78,6 +78,16 @@ export interface Programme {
   sortOrder: number;
 }
 
+/** A session as shown to attendees (status page, timetable page, emails): active sessions only. */
+export interface TimetableSession {
+  title: string;
+  description: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  location: string | null;
+}
+
 /** Members and executives share one record shape (attendees table). */
 export interface Attendee {
   id: string;
@@ -113,6 +123,7 @@ export interface Attendee {
   registeredAt: string;
   confirmationEmailSentAt: string | null;
   confirmationEmailError: string | null;
+  timetableEmailSentAt: string | null;
   accessClaims: Partial<Record<AccessItemType, string>>;
 }
 export type Member = Attendee;

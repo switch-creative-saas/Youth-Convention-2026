@@ -7,6 +7,7 @@ import { useToast } from '@/contexts/ToastContext';
 import type { ChurchGroup, ConventionEvent, ManagedListEntity, ManagedListItem, Programme } from '@/types';
 import { PillButton } from '@/components/ui-kit/PillButton';
 import { PortalInput, formLabelClass } from '@/components/ui-kit/FormControls';
+import { TimetableSharing } from '@/components/timetable/TimetableSharing';
 
 type ListItem = ManagedListItem & Partial<Pick<ChurchGroup, 'autoAssign' | 'forUnbanded'>>;
 
@@ -240,6 +241,7 @@ export function AdminSettings() {
                 </div>
               ))}
             </div>
+            <TimetableSharing activeSessions={programmes.filter(session => session.active).length} />
           </motion.div>
 
           <motion.div className="mt-6" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>

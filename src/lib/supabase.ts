@@ -76,6 +76,11 @@ export function statusUrl(token: string) {
   return `${appBaseUrl()}#/convention/status/${token}`;
 }
 
+/** Public, printable timetable of a workspace's active convention. */
+export function timetableUrl(workspaceSlug: string) {
+  return `${appBaseUrl()}#/convention/timetable/${workspaceSlug}`;
+}
+
 export function registrationUrl(kind: 'member' | 'executive', token: string) {
   return `${appBaseUrl()}#/register/${kind}?token=${token}`;
 }

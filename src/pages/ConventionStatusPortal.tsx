@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { BadgeCheck, CalendarDays, Check, Clock, Download, Gift, Printer, Search, ShieldCheck, Ticket, Trophy, Utensils, XCircle } from 'lucide-react';
+import { ConventionTimetable } from '@/components/timetable/ConventionTimetable';
 import { ExecutiveConventionTag, ConventionTag, type TagAttendee } from '@/components/ConventionTag';
 import { AttendeePortalLayout } from '@/components/attendee/AttendeePortalLayout';
 import { findAttendeeStatus, getAttendeeStatus, type AttendeeStatus } from '@/lib/api';
@@ -151,6 +152,21 @@ function AttendeePass({ status, token }: { status: AttendeeStatus; token: string
             </div>
           </div>
         </motion.div>
+
+        <section id="timetable" className="mt-6 rounded-[28px] border border-portal-line bg-portal-surface p-5 text-portal-ink shadow-xl dark:border-white/10 sm:p-6">
+          <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-xl font-black">Convention Timetable</h2>
+              <p className="mt-1 text-sm text-portal-label">Sessions and times for {status.event.name}.</p>
+            </div>
+            {status.programmes.length > 0 && (
+              <Link to={`/convention/timetable/${status.workspaceSlug}?back=${token}`} className="inline-flex min-h-11 items-center gap-2 rounded-2xl bg-portal-dark px-4 text-sm font-bold text-white">
+                <Printer className="h-4 w-4" /> Print or download
+              </Link>
+            )}
+          </div>
+          <ConventionTimetable sessions={status.programmes} hideLocation={status.event.venue} />
+        </section>
 
         <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_420px]">
           <div className="rounded-[28px] border border-portal-line bg-portal-surface p-5 text-portal-ink shadow-xl dark:border-white/10 sm:p-6">
