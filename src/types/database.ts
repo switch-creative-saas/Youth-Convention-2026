@@ -42,7 +42,7 @@ export type Database = {
       attendees: {
         Row: {
           address: string | null; band_id: string | null; biometric_consent_at: string | null; biometric_status: Enum["biometric_status"]
-          church_location_id: string | null; code: string; confirmation_email_error: string | null; confirmation_email_id: string | null; confirmation_email_sent_at: string | null; created_at: string; created_by: string | null; date_of_birth: string | null
+          church_location_id: string | null; code: string; confirmation_email_error: string | null; confirmation_email_id: string | null; confirmation_email_sent_at: string | null; created_at: string; created_by: string | null; date_of_birth: string | null; timetable_email_sent_at: string | null
           email: string; emergency_contact: string | null; event_id: string; first_timer_followed_up: boolean; full_name: string
           gender: string | null; group_id: string | null; id: string; invited_by: string | null; is_first_timer: boolean
           kind: Enum["registration_kind"]; last_verified_at: string | null; leadership_role: string | null; occupation: string | null
@@ -181,6 +181,7 @@ export type Database = {
         Returns: { code: string; full_name: string; kind: Enum["registration_kind"]; status_token: string }[]
       }
       get_attendee_status: { Args: { p_token: string }; Returns: Json }
+      get_event_timetable: { Args: { p_workspace_slug: string }; Returns: Json }
       get_registration_form: { Args: { p_token: string }; Returns: Json }
       has_workspace_role: { Args: { roles?: Enum["workspace_role"][]; ws: string }; Returns: boolean }
       is_platform_admin: { Args: never; Returns: boolean }

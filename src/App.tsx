@@ -15,6 +15,7 @@ import { MemberRegistration } from '@/pages/MemberRegistration';
 import { ExecutiveRegistration } from '@/pages/ExecutiveRegistration';
 import { ConventionStatusPortal, ConventionStatusSearchPage, ConventionTagDownloadPage } from '@/pages/ConventionStatusPortal';
 import { HireDeveloperPage } from '@/pages/HireDeveloperPage';
+import { ConventionTimetablePage } from '@/pages/ConventionTimetablePage';
 import { QRCheckinPage } from '@/pages/QRCheckinPage';
 import { QROnboardingPage } from '@/pages/QROnboardingPage';
 import type { UserRole } from '@/types';
@@ -47,6 +48,7 @@ function AppRoutes() {
       <Route path="/convention/status" element={<ConventionStatusSearchPage />} />
       <Route path="/convention/status/:token" element={<ConventionStatusPortal />} />
       <Route path="/convention/status/:token/tag" element={<ConventionTagDownloadPage />} />
+      <Route path="/convention/timetable/:slug" element={<ConventionTimetablePage />} />
       <Route path="/convention/hire" element={<HireDeveloperPage />} />
       <Route path="/convention/status/:token/hire" element={<HireDeveloperPage />} />
       <Route path="/qr/:token" element={<QRCheckinPage />} />

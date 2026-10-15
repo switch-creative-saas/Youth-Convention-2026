@@ -12,6 +12,7 @@ import { DataTable } from '@/components/ui-kit/DataTable';
 import { sendRegistrationConfirmation } from '@/lib/registrationEmail';
 import { createTagImage } from '@/lib/tagImage';
 import { formatDateTime } from '@/lib/format';
+import { AttendeeProfileDialog } from '@/components/AttendeeProfileDialog';
 import type { Attendee, RegistrationKind } from '@/types';
 
 const biometricBadge = (status?: string) => {
@@ -53,6 +54,9 @@ export function AdminRegistrations() {
   const [groupFilter, setGroupFilter] = useState('All');
   const [qrUrl, setQrUrl] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<Attendee | null>(null);
+  // Looked up from the live lists so the profile reflects realtime changes.
+  const [profileId, setProfileId] = useState<string | null>(null);
+  const profile = profileId ? [...members, ...executives].find(item => item.id === profileId) ?? null : null;
   const [page, setPage] = useState(0);
   const [busy, setBusy] = useState(false);
   const qrRef = useRef<HTMLDivElement>(null);
@@ -216,8 +220,10 @@ export function AdminRegistrations() {
                   <tr key={row.id} className="border-b border-portal-line dark:border-white/[0.04] hover:bg-portal-surface transition-colors">
                     <td className="py-3 pr-3"><span className="rounded-md bg-portal-surface px-2 py-1 font-mono text-xs text-portal-ink">{row.code}</span></td>
                     <td className="py-3 pr-3">
-                      <span className="cell-truncate text-sm font-medium text-portal-ink">{row.fullName}</span>
-                      <span className="cell-truncate text-xs text-portal-label">{row.email}</span>
+                      <button type="button" onClick={() => setProfileId(row.id)} title="View profile" className="block max-w-full text-left">
+                        <span className="cell-truncate text-sm font-medium text-portal-ink underline-offset-2 hover:underline">{row.fullName}</span>
+                        <span className="cell-truncate text-xs text-portal-label">{row.email}</span>
+                      </button>
                     </td>
                     <td className="py-3 pr-3"><span className="portal-tag text-[10px]">{kind === 'member' ? row.fellowshipBand : row.leadershipRole || '—'}</span></td>
                     <td className="py-3 pr-3"><span className="cell-truncate text-xs text-portal-label">{row.departments.slice(0, 2).join(', ') || '—'}{row.departments.length > 2 ? ` +${row.departments.length - 2}` : ''}</span></td>
@@ -289,6 +295,8 @@ export function AdminRegistrations() {
           </motion.div>
         </div>
       )}
+
+      {profile && <AttendeeProfileDialog attendee={profile} onClose={() => setProfileId(null)} />}
 
       {deleteTarget && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">

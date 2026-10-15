@@ -54,3 +54,21 @@ export function seriesColor(index: number, color?: string | null) {
 export function tagNumber(code: string) {
   return code.split('-').pop() ?? code;
 }
+
+/** "15:00" -> "3:00 PM". */
+export function formatClock(value: string) {
+  const [hours, minutes] = value.split(':').map(Number);
+  if (Number.isNaN(hours) || Number.isNaN(minutes)) return value;
+  return `${hours % 12 || 12}:${String(minutes).padStart(2, '0')} ${hours < 12 ? 'AM' : 'PM'}`;
+}
+
+/** "2026-10-22" -> "Thursday, 22 October". */
+export function formatDayHeading(date: string) {
+  return new Date(`${date}T00:00:00`).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
+}
+
+/** Birthday without the year: "2001-03-15" -> "15 March". */
+export function formatBirthday(date?: string | null) {
+  if (!date) return '';
+  return new Date(`${date.slice(0, 10)}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' });
+}

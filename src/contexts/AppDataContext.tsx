@@ -338,6 +338,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         registeredAt: row.registered_at,
         confirmationEmailSentAt: row.confirmation_email_sent_at,
         confirmationEmailError: row.confirmation_email_error,
+        timetableEmailSentAt: row.timetable_email_sent_at,
         accessClaims: claims.get(row.id) ?? {},
       };
     });
