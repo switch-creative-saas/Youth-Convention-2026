@@ -9,8 +9,7 @@ import { usePermission } from '@/hooks/usePermission';
 import { downloadCanvas, downloadCsv } from '@/lib/format';
 import { PortalInput, PortalSelect } from '@/components/ui-kit/FormControls';
 import { DataTable } from '@/components/ui-kit/DataTable';
-import { sendRegistrationConfirmation } from '@/lib/registrationEmail';
-import { createTagImage } from '@/lib/tagImage';
+import { resendConfirmation } from '@/lib/registrationEmail';
 import { formatDateTime } from '@/lib/format';
 import { AttendeeProfileDialog } from '@/components/AttendeeProfileDialog';
 import type { Attendee, RegistrationKind } from '@/types';
@@ -33,9 +32,7 @@ export function AdminRegistrations() {
   const resendEmail = async (row: Attendee) => {
     setEmailingId(row.id);
     try {
-      let tagPng: string | undefined;
-      try { tagPng = await createTagImage(row, currentEvent?.name ?? 'Youth convention', row.kind); } catch { tagPng = undefined; }
-      await sendRegistrationConfirmation(row.statusToken, { tagPng, force: true });
+      await resendConfirmation(row, currentEvent?.name ?? 'Youth convention');
       addToast({ type: 'success', title: `Confirmation email sent to ${row.email}` });
     } catch (error) {
       addToast({ type: 'error', title: 'Email not sent', description: error instanceof Error ? error.message : undefined, duration: 7000 });

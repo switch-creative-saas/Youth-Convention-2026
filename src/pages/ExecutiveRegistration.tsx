@@ -5,7 +5,7 @@ import { ArrowRight, Check, Download, ShieldAlert, Ticket, Upload } from 'lucide
 import { AuthHeader } from '@/components/auth/AuthExperience';
 import { useToast } from '@/contexts/ToastContext';
 import { sendRegistrationConfirmation } from '@/lib/registrationEmail';
-import { createTagImage, downloadTagImage } from '@/lib/tagImage';
+import { downloadTagImage, tagImageForEmail } from '@/lib/tagImage';
 import type { TagAttendee } from '@/components/ConventionTag';
 import { getRegistrationForm, registerAttendee, type RegistrationForm } from '@/lib/api';
 import { compressPhoto, uploadRegistrationPhoto } from '@/lib/photos';
@@ -89,7 +89,7 @@ export function ExecutiveRegistration() {
       const tag: TagAttendee = {
         fullName: form.fullName.trim(),
         code: registered.code,
-        conventionGroup: 'Executive',
+        conventionGroup: registered.groupName ?? 'Executive',
         fellowshipBand: formData.bands.find(item => item.id === form.bandId)?.name ?? 'None',
         leadershipRole: form.leadershipRole.trim(),
         departments: formData.departments.filter(item => item.id === form.departmentId).map(item => item.name),
@@ -99,7 +99,8 @@ export function ExecutiveRegistration() {
       addToast({ type: 'success', title: 'Executive registration complete!' });
 
       try {
-        const tagPng = await createTagImage(tag, formData.event.name, 'executive');
+        // The attachment is optional: on slow phones the email goes out without it rather than not at all.
+        const tagPng = await tagImageForEmail(tag, formData.event.name, 'executive');
         const sent = await sendRegistrationConfirmation(registered.statusToken, { tagPng });
         if (sent.status === 'sent') addToast({ type: 'success', title: 'Confirmation email sent', description: `Your convention details and tag were sent to ${email}.` });
       } catch (emailError) {

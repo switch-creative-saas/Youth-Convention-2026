@@ -18,7 +18,7 @@ import youthLogo from '@/assets/youth-logo.png';
 import { ConventionTag, type TagAttendee } from '@/components/ConventionTag';
 import { useToast } from '@/contexts/ToastContext';
 import { sendRegistrationConfirmation } from '@/lib/registrationEmail';
-import { createTagImage } from '@/lib/tagImage';
+import { createTagImage, tagImageForEmail } from '@/lib/tagImage';
 import { getRegistrationForm, registerAttendee, type RegistrationForm } from '@/lib/api';
 import { compressPhoto, uploadRegistrationPhoto } from '@/lib/photos';
 import { statusUrl } from '@/lib/supabase';
@@ -260,7 +260,8 @@ export function MemberRegistration() {
     const sendEmail = async () => {
       try {
         await new Promise(resolve => window.requestAnimationFrame(resolve));
-        const imageUrl = await createTagImage(registeredMember, eventName);
+        // The attachment is optional: on slow phones the email goes out without it rather than not at all.
+        const imageUrl = await tagImageForEmail(registeredMember, eventName);
         if (cancelled) return;
 
         const result = await sendRegistrationConfirmation(registeredMember.statusToken, { tagPng: imageUrl });

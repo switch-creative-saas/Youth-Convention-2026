@@ -11,6 +11,7 @@ import { useToast } from '@/contexts/ToastContext';
 import { usePermission } from '@/hooks/usePermission';
 import { downloadCanvas, initials, seriesColor, timeAgo } from '@/lib/format';
 import { InviteLinkDialog } from '@/components/InviteLinkDialog';
+import { PendingEmailsPanel } from '@/components/PendingEmailsPanel';
 import { WORKSPACE_ROLE_LABELS, roleOptionLabel, type Attendee, type RegistrationKind, type WorkspaceRole } from '@/types';
 
 // Staff roles first (the default pick), then admin (full access).
@@ -159,6 +160,8 @@ export function AdminDashboard() {
           </motion.button>
         ))}
       </div>
+
+      <PendingEmailsPanel />
 
       {/* Main Content Grid */}
       <div className="grid min-w-0 grid-cols-1 gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
