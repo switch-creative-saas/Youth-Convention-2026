@@ -1,6 +1,7 @@
-// Draws a convention tag as a PNG (used for downloads, the on-screen executive tag and the
-// confirmation email attachment). Members keep the light patterned design; executives get a
-// dark ID-card design with their leadership role, band, group, department and a QR code.
+// Draws a convention tag as a PNG (used on screen, for downloads and printing, and as the
+// confirmation email attachment). Both are ID-card designs with a QR code of the attendee ID:
+// executives on a dark card with their leadership role, members on a milk card with their group.
+// Both show band, group and department(s).
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { QRCodeSVG } from 'qrcode.react';
@@ -28,9 +29,9 @@ function loadOptionalImage(src?: string | null) {
   return src ? loadCanvasImage(src).catch(() => null) : Promise.resolve(null);
 }
 
-function qrImage(value: string) {
+function qrImage(value: string, color = '#0e1312') {
   // xmlns is required for an SVG to load as an <img>/canvas image.
-  const svg = renderToStaticMarkup(createElement(QRCodeSVG, { value, size: 512, marginSize: 0, level: 'M', fgColor: '#0e1312', bgColor: '#ffffff', xmlns: 'http://www.w3.org/2000/svg' }));
+  const svg = renderToStaticMarkup(createElement(QRCodeSVG, { value, size: 512, marginSize: 0, level: 'M', fgColor: color, bgColor: '#ffffff', xmlns: 'http://www.w3.org/2000/svg' }));
   return loadCanvasImage(`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`).catch(() => null);
 }
 
@@ -118,145 +119,194 @@ function drawFittedText(context: CanvasRenderingContext2D, text: string, options
 }
 
 const SANS = 'Poppins, "Segoe UI", Arial, sans-serif';
-const SCRIPT = '"Brush Script MT", "Segoe Script", cursive';
 const TEAL = '#069d92';
 const BRIGHT_TEAL = '#08b8ad';
+const DEEP_TEAL = '#0b4a43';
 const ORANGE = '#ff9f00';
-const CHARCOAL = '#484848';
 
+/** Hides placeholder values ("None", "Unassigned", the executive fallback) on tags. */
+const show = (value?: string | null) => (value && value !== 'None' && value !== 'Executive' && value !== 'Unassigned' ? value : '—');
+
+/**
+ * Member tag: the executive ID-card layout on a milk background, with a rounded-square photo,
+ * the group on a teal bar, and band and department(s) beside the QR code.
+ */
 async function drawMemberTag(context: CanvasRenderingContext2D, member: TagAttendee, eventName: string) {
   const { width, height } = context.canvas;
-  const [youth, photo] = await Promise.all([loadCanvasImage(youthLogo), loadOptionalImage(member.profilePhoto)]);
+  const [youth, photo, qr] = await Promise.all([
+    loadCanvasImage(youthLogo),
+    loadOptionalImage(member.profilePhoto),
+    qrImage(member.code, DEEP_TEAL),
+  ]);
 
-  const drawRing = (x: number, y: number, radius: number) => {
-    context.save();
-    context.fillStyle = BRIGHT_TEAL;
-    context.beginPath();
-    context.arc(x, y, radius, 0, Math.PI * 2);
-    context.fill();
-    context.fillStyle = '#f7f7f7';
-    context.beginPath();
-    context.arc(x, y, radius - 28, 0, Math.PI * 2);
-    context.fill();
-    context.fillStyle = CHARCOAL;
-    context.beginPath();
-    context.arc(x, y, radius - 58, 0, Math.PI * 2);
-    context.fill();
-    context.restore();
-  };
-
-  const drawDotGrid = (x: number, y: number, gridWidth: number, gridHeight: number) => {
-    context.fillStyle = CHARCOAL;
-    for (let dotY = y + 6; dotY < y + gridHeight; dotY += 28) {
-      for (let dotX = x + 6; dotX < x + gridWidth; dotX += 28) {
-        context.beginPath();
-        context.arc(dotX, dotY, 7, 0, Math.PI * 2);
-        context.fill();
-      }
-    }
-  };
-
-  const drawStripes = (x: number, y: number, stripeWidth: number, stripeHeight: number) => {
-    context.save();
-    context.beginPath();
-    context.rect(x, y, stripeWidth, stripeHeight);
-    context.clip();
-    context.strokeStyle = ORANGE;
-    context.lineWidth = 12;
-    for (let offset = -stripeHeight; offset < stripeWidth + stripeHeight; offset += 38) {
-      context.beginPath();
-      context.moveTo(x + offset, y);
-      context.lineTo(x + offset + stripeHeight, y + stripeHeight);
-      context.stroke();
-    }
-    context.restore();
-  };
-
-  const drawDiamond = (cx: number, cy: number, size: number) => {
-    context.save();
-    context.translate(cx, cy);
-    context.rotate(Math.PI / 4);
-    context.fillStyle = '#54b8ad';
-    context.fillRect(-size * 0.28, -size * 0.28, size * 0.56, size * 0.56);
-    context.strokeStyle = ORANGE;
-    context.lineWidth = 7;
-    context.strokeRect(-size / 2, -size / 2, size, size);
-    context.strokeRect(-size * 0.34, -size * 0.34, size * 0.68, size * 0.68);
-    context.restore();
-  };
-
-  context.fillStyle = '#f7f7f7';
-  context.fillRect(0, 0, width, height);
+  // Card with rounded corners (transparent outside) and a warm milk gradient.
+  roundedRect(context, 0, 0, width, height, 64);
   context.save();
-  context.strokeStyle = 'rgba(226,226,226,0.58)';
-  context.lineWidth = 30;
-  for (let offset = -height; offset < width; offset += 72) {
-    context.beginPath();
-    context.moveTo(offset, 0);
-    context.lineTo(offset + height, height);
-    context.stroke();
+  context.clip();
+  const background = context.createLinearGradient(0, 0, width, height);
+  background.addColorStop(0, '#fffaf1');
+  background.addColorStop(0.6, '#f8f0e1');
+  background.addColorStop(1, '#f1e5ce');
+  context.fillStyle = background;
+  context.fillRect(0, 0, width, height);
+
+  // Soft colour glows and angular facets.
+  context.fillStyle = 'rgba(8,184,173,0.10)';
+  context.beginPath();
+  context.arc(1120, 130, 250, 0, Math.PI * 2);
+  context.fill();
+  context.fillStyle = 'rgba(255,159,0,0.10)';
+  context.beginPath();
+  context.arc(30, 1880, 300, 0, Math.PI * 2);
+  context.fill();
+  polygon(context, [[0, 240], [480, 0], [780, 0], [0, 660]], 'rgba(11,74,67,0.035)');
+  polygon(context, [[0, 660], [780, 0], [840, 0], [0, 720]], 'rgba(11,74,67,0.06)');
+  polygon(context, [[width, 1040], [width, 1660], [620, height], [330, height]], 'rgba(11,74,67,0.035)');
+
+  // Slanted accent bars: teal on the right, orange low on the left (reverse of the executive tag).
+  for (let index = 0; index < 3; index += 1) {
+    const top = 470 + index * 96;
+    polygon(context, [[width, top], [width, top + 58], [1086, top + 100], [1086, top + 42]], BRIGHT_TEAL);
+  }
+  for (let index = 0; index < 3; index += 1) {
+    const top = 1270 + index * 70;
+    polygon(context, [[0, top], [52, top - 26], [52, top + 14], [0, top + 40]], ORANGE);
+  }
+
+  // Lanyard slot.
+  roundedRect(context, 512, 62, 160, 36, 18);
+  context.fillStyle = '#e7d9bf';
+  context.fill();
+  context.strokeStyle = 'rgba(11,74,67,0.18)';
+  context.lineWidth = 3;
+  context.stroke();
+
+  // Header: logo badge and event name (wraps onto two lines instead of being cut off).
+  roundedRect(context, 76, 142, 136, 136, 30);
+  context.fillStyle = '#ffffff';
+  context.fill();
+  context.strokeStyle = 'rgba(8,184,173,0.45)';
+  context.lineWidth = 4;
+  context.stroke();
+  drawContainImage(context, youth, 86, 152, 116, 116);
+  context.fillStyle = DEEP_TEAL;
+  drawFittedText(context, eventName, { x: 244, centerY: 210, maxWidth: 850, maxLines: 2, size: 54, minSize: 34, weight: 700, family: SANS, lineHeight: 1.08, align: 'left' });
+
+  // MEMBER pill.
+  roundedRect(context, 432, 330, 320, 70, 35);
+  context.fillStyle = ORANGE;
+  context.fill();
+  context.fillStyle = '#13201e';
+  drawFittedText(context, 'M E M B E R', { x: 592, centerY: 366, maxWidth: 280, maxLines: 1, size: 32, minSize: 24, weight: 800, family: SANS });
+
+  // Rounded-square photo: offset teal block behind, white frame, orange corner brackets.
+  const size = 500;
+  const left = 592 - size / 2;
+  const top = 482;
+  roundedRect(context, left + 22, top + 22, size, size, 64);
+  context.fillStyle = BRIGHT_TEAL;
+  context.fill();
+  roundedRect(context, left - 12, top - 12, size + 24, size + 24, 72);
+  context.fillStyle = '#ffffff';
+  context.fill();
+  context.save();
+  roundedRect(context, left, top, size, size, 60);
+  context.clip();
+  if (photo) {
+    drawCoverImage(context, photo, left, top, size, size);
+  } else {
+    context.fillStyle = '#eadfc8';
+    context.fillRect(left, top, size, size);
+    context.fillStyle = DEEP_TEAL;
+    drawFittedText(context, initials(member.fullName), { x: 592, centerY: top + size / 2, maxWidth: size * 0.8, maxLines: 1, size: 150, minSize: 80, weight: 800, family: SANS });
   }
   context.restore();
-
-  drawRing(1078, -34, 108);
-  drawRing(640, 88, 108);
-  drawRing(592, 1872, 108);
-  drawRing(168, 1986, 108);
-  drawDotGrid(774, 0, 148, 174);
-  drawDotGrid(306, 1880, 160, 126);
-  drawStripes(912, 88, 272, 140);
-  drawStripes(0, 1740, 326, 140);
-  drawDiamond(-58, 1128, 298);
-  drawDiamond(1220, 620, 298);
-  context.fillStyle = BRIGHT_TEAL;
+  context.strokeStyle = ORANGE;
+  context.lineWidth = 12;
+  context.lineCap = 'round';
   context.beginPath();
-  context.arc(864, 186, 42, 0, Math.PI * 2);
-  context.fill();
-  context.beginPath();
-  context.arc(352, 1788, 42, 0, Math.PI * 2);
-  context.fill();
-
-  // Header: logo, then the event name on up to two lines, kept clear of the ring beside it.
-  drawContainImage(context, youth, 64, 40, 132, 132);
-  context.fillStyle = '#0b4a43';
-  drawFittedText(context, eventName, { x: 210, centerY: 108, maxWidth: 300, maxLines: 2, size: 46, minSize: 26, weight: 600, family: SCRIPT, lineHeight: 1.05, align: 'left' });
-
-  context.fillStyle = '#0b4a43';
-  drawFittedText(context, member.conventionGroup.toUpperCase(), { x: 592, centerY: 296, maxWidth: 760, maxLines: 1, size: 48, minSize: 30, weight: 600, family: SANS });
-
-  context.fillStyle = CHARCOAL;
-  context.fillRect(300, 330, 580, 920);
-  context.fillStyle = '#f7f7f7';
-  context.fillRect(370, 352, 440, 44);
-  context.fillRect(326, 398, 528, 820);
-  if (photo) drawCoverImage(context, photo, 326, 398, 528, 820);
-  polygon(context, [[880, 1010], [880, 1250], [586, 1250]], CHARCOAL);
-
-  polygon(context, [[258, 1312], [1008, 1312], [940, 1534], [226, 1534]], TEAL);
-  context.fillStyle = '#ffffff';
-  drawFittedText(context, member.fullName.toUpperCase(), { x: 592, centerY: 1390, maxWidth: 650, maxLines: 2, size: 60, minSize: 36, weight: 900, family: SANS, lineHeight: 1.04 });
-
-  polygon(context, [[246, 1448], [982, 1482], [936, 1582], [288, 1604]], ORANGE);
-  context.fillStyle = '#334155';
-  drawFittedText(context, member.fellowshipBand.toUpperCase(), { x: 592, centerY: 1532, maxWidth: 520, maxLines: 1, size: 43, minSize: 28, weight: 900, family: SANS });
-
-  context.fillStyle = TEAL;
-  roundedRect(context, 376, 1628, 428, 82, 14);
-  context.fill();
-  context.fillStyle = '#ffffff';
-  drawFittedText(context, `ID : ${tagNumber(member.code)}`, { x: 590, centerY: 1670, maxWidth: 380, maxLines: 1, size: 34, minSize: 26, weight: 800, family: 'Inter, Arial, sans-serif' });
-
-  context.strokeStyle = '#0b4a43';
-  context.lineWidth = 5;
-  context.beginPath();
-  context.moveTo(758, 1918);
-  context.lineTo(1134, 1918);
+  context.moveTo(left - 40, top + 90);
+  context.lineTo(left - 40, top - 40);
+  context.lineTo(left + 90, top - 40);
   context.stroke();
-  context.fillStyle = '#0b4a43';
+  context.beginPath();
+  context.moveTo(left + size + 62, top + size - 70);
+  context.lineTo(left + size + 62, top + size + 62);
+  context.lineTo(left + size - 70, top + size + 62);
+  context.stroke();
+
+  // Name.
+  context.fillStyle = DEEP_TEAL;
+  drawFittedText(context, member.fullName.toUpperCase(), { x: 592, centerY: 1118, maxWidth: 1010, maxLines: 2, size: 80, minSize: 44, weight: 900, family: SANS, lineHeight: 1.0 });
+
+  // Group on a teal bar.
+  polygon(context, [[104, 1210], [1056, 1210], [1084, 1302], [132, 1302]], TEAL);
+  context.fillStyle = '#ffffff';
+  const group = show(member.conventionGroup);
+  drawFittedText(context, (group === '—' ? 'Youth member' : group).toUpperCase(), { x: 592, centerY: 1257, maxWidth: 880, maxLines: 1, size: 46, minSize: 24, weight: 800, family: SANS });
+
+  // Band and department(s).
+  const rows: Array<[string, string, number]> = [
+    ['FELLOWSHIP BAND', show(member.fellowshipBand), 1],
+    [member.departments.length > 1 ? 'DEPARTMENTS' : 'DEPARTMENT', show(member.departments.join(', ')), 2],
+  ];
+  let rowTop = 1372;
+  rows.forEach(([label, value, lines], index) => {
+    context.fillStyle = '#b36b00';
+    context.font = `700 26px ${SANS}`;
+    context.textAlign = 'left';
+    context.textBaseline = 'middle';
+    context.fillText(label, 100, rowTop);
+    context.fillStyle = '#1f2933';
+    context.font = `700 40px ${SANS}`;
+    const wraps = lines === 2 && context.measureText(value).width > 620;
+    const valueCenter = wraps ? rowTop + 66 : rowTop + 46;
+    drawFittedText(context, value, { x: 100, centerY: valueCenter, maxWidth: 620, maxLines: lines, size: 40, minSize: 26, weight: 700, family: SANS, align: 'left', lineHeight: 1.12 });
+    if (index < rows.length - 1) {
+      context.fillStyle = 'rgba(11,74,67,0.12)';
+      context.fillRect(100, rowTop + 92, 620, 2);
+    }
+    rowTop += 128;
+  });
+
+  // QR code (the member ID, read by the check-in scanner).
+  roundedRect(context, 784, 1336, 304, 304, 28);
+  context.fillStyle = '#ffffff';
+  context.fill();
+  context.strokeStyle = 'rgba(11,74,67,0.15)';
+  context.lineWidth = 3;
+  context.stroke();
+  if (qr) context.drawImage(qr, 806, 1358, 260, 260);
+  context.fillStyle = '#6b7c79';
+  drawFittedText(context, 'Scan to verify', { x: 936, centerY: 1676, maxWidth: 300, maxLines: 1, size: 24, minSize: 20, weight: 600, family: SANS });
+
+  // ID.
+  roundedRect(context, 100, 1712, 340, 86, 20);
+  context.fillStyle = 'rgba(255,159,0,0.16)';
+  context.fill();
+  context.strokeStyle = ORANGE;
+  context.lineWidth = 3;
+  context.stroke();
+  context.fillStyle = DEEP_TEAL;
+  drawFittedText(context, `ID : ${tagNumber(member.code)}`, { x: 270, centerY: 1756, maxWidth: 300, maxLines: 1, size: 40, minSize: 26, weight: 800, family: 'Inter, Arial, sans-serif' });
+
+  // Signature line.
+  context.fillStyle = 'rgba(11,74,67,0.55)';
+  context.fillRect(700, 1798, 388, 3);
+  context.fillStyle = DEEP_TEAL;
   context.font = 'italic 28px Georgia, serif';
   context.textAlign = 'center';
-  context.textBaseline = 'alphabetic';
-  context.fillText('Youth Exco Signature', 956, 1974);
+  context.textBaseline = 'middle';
+  context.fillText('Youth Exco Signature', 894, 1840);
+
+  // Footer band.
+  context.fillStyle = BRIGHT_TEAL;
+  context.fillRect(0, 1906, width, 10);
+  context.fillStyle = ORANGE;
+  context.fillRect(0, 1916, width, height - 1916);
+  context.fillStyle = '#13201e';
+  drawFittedText(context, eventName.toUpperCase(), { x: 592, centerY: 1960, maxWidth: 1000, maxLines: 1, size: 30, minSize: 20, weight: 700, family: SANS });
+  context.restore();
 }
 
 async function drawExecutiveTag(context: CanvasRenderingContext2D, executive: TagAttendee, eventName: string) {
@@ -362,7 +412,6 @@ async function drawExecutiveTag(context: CanvasRenderingContext2D, executive: Ta
   drawFittedText(context, (executive.leadershipRole || 'Executive').toUpperCase(), { x: 592, centerY: 1257, maxWidth: 880, maxLines: 1, size: 46, minSize: 24, weight: 800, family: SANS });
 
   // Band, group and department.
-  const show = (value?: string | null) => (value && value !== 'None' && value !== 'Executive' && value !== 'Unassigned' ? value : '—');
   const rows: Array<[string, string]> = [
     ['BAND', show(executive.fellowshipBand)],
     ['GROUP', show(executive.conventionGroup)],
