@@ -18,7 +18,7 @@ import youthLogo from '@/assets/youth-logo.png';
 import { ConventionTag, type TagAttendee } from '@/components/ConventionTag';
 import { useToast } from '@/contexts/ToastContext';
 import { sendRegistrationConfirmation } from '@/lib/registrationEmail';
-import { createTagImage, tagImageForEmail } from '@/lib/tagImage';
+import { downloadTagImage, tagImagesForEmail } from '@/lib/tagImage';
 import { getRegistrationForm, registerAttendee, type RegistrationForm } from '@/lib/api';
 import { compressPhoto, uploadRegistrationPhoto } from '@/lib/photos';
 import { statusUrl } from '@/lib/supabase';
@@ -238,11 +238,7 @@ export function MemberRegistration() {
     if (!tagRef.current || !registeredMember) return;
 
     try {
-      const imageUrl = await createTagImage(registeredMember, eventName);
-      const anchor = document.createElement('a');
-      anchor.href = imageUrl;
-      anchor.download = `${registeredMember.code}-convention-tag.png`;
-      anchor.click();
+      await downloadTagImage(registeredMember, eventName);
     } catch (error) {
       addToast({
         type: 'error',
@@ -261,10 +257,10 @@ export function MemberRegistration() {
       try {
         await new Promise(resolve => window.requestAnimationFrame(resolve));
         // The attachment is optional: on slow phones the email goes out without it rather than not at all.
-        const imageUrl = await tagImageForEmail(registeredMember, eventName);
+        const images = await tagImagesForEmail(registeredMember, eventName);
         if (cancelled) return;
 
-        const result = await sendRegistrationConfirmation(registeredMember.statusToken, { tagPng: imageUrl });
+        const result = await sendRegistrationConfirmation(registeredMember.statusToken, images);
         if (!cancelled) {
           setEmailingMemberId('');
           if (result.status === 'sent') addToast({ type: 'success', title: 'Confirmation email sent', description: `Your convention details and tag were sent to ${registeredMember.email}.` });

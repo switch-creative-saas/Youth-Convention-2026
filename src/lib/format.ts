@@ -67,6 +67,16 @@ export function formatDayHeading(date: string) {
   return new Date(`${date}T00:00:00`).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
 }
 
+/** Full date of birth with age: "2001-03-15" -> "15 March 2001 (25 years)". */
+export function formatDateOfBirth(date?: string | null) {
+  if (!date) return '';
+  const born = new Date(`${date.slice(0, 10)}T00:00:00`);
+  const now = new Date();
+  let age = now.getFullYear() - born.getFullYear();
+  if (now.getMonth() < born.getMonth() || (now.getMonth() === born.getMonth() && now.getDate() < born.getDate())) age -= 1;
+  return `${born.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })} (${age} years)`;
+}
+
 /** Birthday without the year: "2001-03-15" -> "15 March". */
 export function formatBirthday(date?: string | null) {
   if (!date) return '';

@@ -93,9 +93,13 @@ function wrapLines(context: CanvasRenderingContext2D, text: string, maxWidth: nu
  */
 function drawFittedText(context: CanvasRenderingContext2D, text: string, options: {
   x: number; centerY: number; maxWidth: number; maxLines: number; size: number; minSize: number;
-  weight: number | string; family: string; lineHeight?: number; align?: CanvasTextAlign;
+  weight: number | string; family: string; lineHeight?: number; align?: CanvasTextAlign; tracking?: number;
 }) {
   const { x, centerY, maxWidth, maxLines, minSize, weight, family, align = 'center' } = options;
+  // Letter spacing (supported by current browsers; older ones simply draw without it).
+  const spaced = context as CanvasRenderingContext2D & { letterSpacing?: string };
+  const previousSpacing = spaced.letterSpacing;
+  if (options.tracking) spaced.letterSpacing = `${options.tracking}px`;
   let size = options.size;
   let lines: string[] = [];
   for (; size >= minSize; size -= 2) {
@@ -116,6 +120,8 @@ function drawFittedText(context: CanvasRenderingContext2D, text: string, options
   context.textBaseline = 'middle';
   const top = centerY - ((lines.length - 1) * lineHeight) / 2;
   lines.forEach((item, index) => context.fillText(item, x, top + index * lineHeight));
+  // Some browsers report the default as an empty string, which is ignored when assigned back.
+  if (options.tracking) spaced.letterSpacing = previousSpacing || '0px';
 }
 
 const SANS = 'Poppins, "Segoe UI", Arial, sans-serif';
@@ -197,7 +203,7 @@ async function drawMemberTag(context: CanvasRenderingContext2D, member: TagAtten
   context.fillStyle = ORANGE;
   context.fill();
   context.fillStyle = '#13201e';
-  drawFittedText(context, 'M E M B E R', { x: 592, centerY: 366, maxWidth: 280, maxLines: 1, size: 32, minSize: 24, weight: 800, family: SANS });
+  drawFittedText(context, 'MEMBER', { x: 592, centerY: 366, maxWidth: 280, maxLines: 1, size: 32, minSize: 24, weight: 800, family: SANS, tracking: 8 });
 
   // Rounded-square photo: offset teal block behind, white frame, orange corner brackets.
   const size = 500;
@@ -365,7 +371,7 @@ async function drawExecutiveTag(context: CanvasRenderingContext2D, executive: Ta
   context.fillStyle = TEAL;
   context.fill();
   context.fillStyle = '#ffffff';
-  drawFittedText(context, 'E X E C U T I V E', { x: 592, centerY: 366, maxWidth: 320, maxLines: 1, size: 32, minSize: 24, weight: 800, family: SANS });
+  drawFittedText(context, 'EXECUTIVE', { x: 592, centerY: 366, maxWidth: 320, maxLines: 1, size: 32, minSize: 24, weight: 800, family: SANS, tracking: 8 });
 
   // Circular photo with a teal ring and an orange arc.
   const cx = 592;
@@ -469,39 +475,291 @@ async function drawExecutiveTag(context: CanvasRenderingContext2D, executive: Ta
   context.restore();
 }
 
-/** Renders the tag as a PNG data URL. */
-export async function createTagImage(member: TagAttendee, eventName: string, kind: 'member' | 'executive' = 'member') {
+/** Media team members (any department whose name contains "media") get the media tag and a back page. */
+export function isMediaTeam(departments: string[]) {
+  return departments.some(name => /media/i.test(name));
+}
+
+const MEDIA_ORANGE = '#ff7a00';
+
+/** Black card with an orange glow from one corner (shared by the media front and back). */
+function mediaBackground(context: CanvasRenderingContext2D, glowX: number, glowY: number) {
+  const { width, height } = context.canvas;
+  context.fillStyle = '#0b0b0b';
+  context.fillRect(0, 0, width, height);
+  const glow = context.createRadialGradient(glowX, glowY, 0, glowX, glowY, 1400);
+  glow.addColorStop(0, 'rgba(255,122,0,0.62)');
+  glow.addColorStop(0.45, 'rgba(255,90,0,0.20)');
+  glow.addColorStop(1, 'rgba(255,90,0,0)');
+  context.fillStyle = glow;
+  context.fillRect(0, 0, width, height);
+}
+
+function lanyardSlot(context: CanvasRenderingContext2D) {
+  roundedRect(context, 512, 62, 160, 36, 18);
+  context.fillStyle = '#000000';
+  context.fill();
+  context.strokeStyle = 'rgba(255,255,255,0.18)';
+  context.lineWidth = 3;
+  context.stroke();
+}
+
+/** Rounded square rotated 45° (the media photo frame). */
+function diamondPath(context: CanvasRenderingContext2D, cx: number, cy: number, side: number, radius: number) {
+  context.save();
+  context.translate(cx, cy);
+  context.rotate(Math.PI / 4);
+  roundedRect(context, -side / 2, -side / 2, side, side, radius);
+  context.restore();
+}
+
+/**
+ * Media tag front: giant MEDIA lettering down a white strip on the left, outlined MEDIA type behind,
+ * a diamond photo on an orange glow, and the convention details on a white panel.
+ */
+async function drawMediaFront(context: CanvasRenderingContext2D, attendee: TagAttendee, eventName: string, kind: 'member' | 'executive') {
+  const { width, height } = context.canvas;
+  const [youth, photo, qr] = await Promise.all([
+    loadCanvasImage(youthLogo),
+    loadOptionalImage(attendee.profilePhoto),
+    qrImage(attendee.code, '#0b0b0b'),
+  ]);
+  const strip = 330;
+  const panelX = 384;
+  const centerX = (panelX + width - 60) / 2;
+
+  roundedRect(context, 0, 0, width, height, 64);
+  context.save();
+  context.clip();
+  mediaBackground(context, width, height);
+
+  // Outlined MEDIA type behind the right-hand panel.
+  context.save();
+  context.beginPath();
+  context.rect(strip, 0, width - strip, height);
+  context.clip();
+  context.strokeStyle = 'rgba(255,255,255,0.09)';
+  context.lineWidth = 3;
+  context.font = `900 300px ${SANS}`;
+  context.textAlign = 'left';
+  context.textBaseline = 'alphabetic';
+  for (let row = 0; row < 7; row += 1) context.strokeText('MEDIA', row % 2 ? strip - 120 : strip + 20, 330 + row * 290);
+  context.restore();
+
+  // White strip with giant MEDIA lettering reading bottom to top.
+  context.fillStyle = '#ffffff';
+  context.fillRect(0, 0, strip, height);
+  context.save();
+  context.translate(strip - 34, height - 60);
+  context.rotate(-Math.PI / 2);
+  context.font = `900 360px ${SANS}`;
+  const lettering = context.measureText('MEDIA').width;
+  context.scale((height - 120) / lettering, 1);
+  context.fillStyle = '#0b0b0b';
+  context.textAlign = 'left';
+  context.textBaseline = 'alphabetic';
+  context.fillText('MEDIA', 0, 0);
+  context.restore();
+  context.fillStyle = MEDIA_ORANGE;
+  context.fillRect(strip, 0, 8, height);
+
+  lanyardSlot(context);
+
+  // Header.
+  roundedRect(context, panelX, 140, 112, 112, 26);
+  context.fillStyle = '#ffffff';
+  context.fill();
+  drawContainImage(context, youth, panelX + 8, 148, 96, 96);
+  context.fillStyle = '#ffffff';
+  drawFittedText(context, eventName, { x: panelX + 136, centerY: 196, maxWidth: width - panelX - 136 - 60, maxLines: 2, size: 42, minSize: 28, weight: 700, family: SANS, lineHeight: 1.08, align: 'left' });
+  context.fillStyle = MEDIA_ORANGE;
+  drawFittedText(context, 'OFFICIAL MEDIA TEAM', { x: centerX, centerY: 318, maxWidth: width - panelX - 60, maxLines: 1, size: 28, minSize: 20, weight: 800, family: SANS, tracking: 10 });
+
+  // Diamond photo on an orange gradient diamond.
+  const cy = 690;
+  const glow = context.createLinearGradient(centerX - 300, cy - 300, centerX + 300, cy + 300);
+  glow.addColorStop(0, '#ffb000');
+  glow.addColorStop(1, '#ff4d00');
+  diamondPath(context, centerX, cy, 470, 60);
+  context.fillStyle = glow;
+  context.fill();
+  context.save();
+  diamondPath(context, centerX, cy, 400, 48);
+  context.clip();
+  if (photo) {
+    drawCoverImage(context, photo, centerX - 290, cy - 290, 580, 580);
+  } else {
+    context.fillStyle = '#1d1d1d';
+    context.fillRect(centerX - 290, cy - 290, 580, 580);
+    context.fillStyle = '#ffffff';
+    drawFittedText(context, initials(attendee.fullName), { x: centerX, centerY: cy, maxWidth: 300, maxLines: 1, size: 130, minSize: 70, weight: 800, family: SANS });
+  }
+  context.restore();
+
+  // Name and role.
+  context.fillStyle = '#ffffff';
+  drawFittedText(context, attendee.fullName.toUpperCase(), { x: centerX, centerY: 1095, maxWidth: width - panelX - 70, maxLines: 2, size: 70, minSize: 38, weight: 900, family: SANS, lineHeight: 1.02 });
+  context.fillStyle = MEDIA_ORANGE;
+  const role = kind === 'executive' && attendee.leadershipRole ? attendee.leadershipRole : 'Media Team';
+  drawFittedText(context, role.toUpperCase(), { x: centerX, centerY: 1190, maxWidth: width - panelX - 70, maxLines: 1, size: 32, minSize: 22, weight: 800, family: SANS });
+
+  // White details panel.
+  roundedRect(context, panelX, 1250, width - panelX - 60, 330, 36);
+  context.fillStyle = '#ffffff';
+  context.fill();
+  const rows: Array<[string, string]> = [
+    ['GROUP', show(attendee.conventionGroup)],
+    ['BAND', show(attendee.fellowshipBand)],
+    ['DEPARTMENT', show(attendee.departments.join(', '))],
+  ];
+  rows.forEach(([label, value], index) => {
+    const top = 1300 + index * 100;
+    context.fillStyle = '#8a8a85';
+    context.font = `700 22px ${SANS}`;
+    context.textAlign = 'left';
+    context.textBaseline = 'middle';
+    context.fillText(label, panelX + 40, top);
+    context.fillStyle = '#0b0b0b';
+    drawFittedText(context, value, { x: panelX + 40, centerY: top + 36, maxWidth: width - panelX - 140, maxLines: 1, size: 36, minSize: 22, weight: 800, family: SANS, align: 'left' });
+  });
+
+  // ID and QR code.
+  context.fillStyle = '#ffffff';
+  drawFittedText(context, `ID : ${tagNumber(attendee.code)}`, { x: panelX, centerY: 1680, maxWidth: 420, maxLines: 1, size: 48, minSize: 28, weight: 800, family: 'Inter, Arial, sans-serif', align: 'left' });
+  context.fillStyle = 'rgba(255,255,255,0.65)';
+  drawFittedText(context, 'Press access · all sessions', { x: panelX, centerY: 1740, maxWidth: 420, maxLines: 1, size: 26, minSize: 20, weight: 600, family: SANS, align: 'left' });
+  roundedRect(context, width - 60 - 210, 1612, 210, 210, 22);
+  context.fillStyle = '#ffffff';
+  context.fill();
+  if (qr) context.drawImage(qr, width - 60 - 195, 1627, 180, 180);
+
+  // Footer.
+  context.fillStyle = MEDIA_ORANGE;
+  context.fillRect(panelX, 1880, width - panelX - 60, 4);
+  context.fillStyle = '#ffffff';
+  drawFittedText(context, eventName.toUpperCase(), { x: centerX, centerY: 1940, maxWidth: width - panelX - 70, maxLines: 1, size: 28, minSize: 18, weight: 700, family: SANS });
+  context.restore();
+}
+
+/** Media tag back: faded MEDIA TEAM type, a large QR code, the ID and what the pass allows. */
+async function drawMediaBack(context: CanvasRenderingContext2D, attendee: TagAttendee, eventName: string, kind: 'member' | 'executive') {
+  const { width, height } = context.canvas;
+  const [youth, qr] = await Promise.all([loadCanvasImage(youthLogo), qrImage(attendee.code, '#0b0b0b')]);
+
+  roundedRect(context, 0, 0, width, height, 64);
+  context.save();
+  context.clip();
+  mediaBackground(context, 0, 0);
+
+  // Faded stacked MEDIA / TEAM lettering.
+  context.fillStyle = 'rgba(255,255,255,0.06)';
+  context.font = `900 330px ${SANS}`;
+  context.textAlign = 'left';
+  context.textBaseline = 'alphabetic';
+  ['MEDIA', 'TEAM', 'MEDIA', 'TEAM', 'MEDIA', 'TEAM', 'MEDIA'].forEach((word, row) => context.fillText(word, -30, 330 + row * 290));
+
+  lanyardSlot(context);
+
+  roundedRect(context, 532, 140, 120, 120, 28);
+  context.fillStyle = '#ffffff';
+  context.fill();
+  drawContainImage(context, youth, 541, 149, 102, 102);
+  context.fillStyle = '#ffffff';
+  drawFittedText(context, eventName, { x: 592, centerY: 318, maxWidth: 960, maxLines: 1, size: 40, minSize: 26, weight: 700, family: SANS });
+
+  context.fillStyle = 'rgba(255,255,255,0.75)';
+  drawFittedText(context, 'SCAN TO VERIFY', { x: 592, centerY: 452, maxWidth: 800, maxLines: 1, size: 28, minSize: 20, weight: 500, family: SANS, tracking: 10 });
+  context.fillStyle = '#ffffff';
+  drawFittedText(context, 'MEDIA PASS', { x: 592, centerY: 522, maxWidth: 900, maxLines: 1, size: 70, minSize: 40, weight: 900, family: SANS });
+
+  roundedRect(context, 292, 600, 600, 600, 44);
+  context.fillStyle = '#ffffff';
+  context.fill();
+  if (qr) context.drawImage(qr, 332, 640, 520, 520);
+
+  roundedRect(context, 312, 1240, 560, 92, 46);
+  context.fillStyle = '#ffffff';
+  context.fill();
+  context.fillStyle = '#0b0b0b';
+  drawFittedText(context, attendee.code, { x: 592, centerY: 1287, maxWidth: 500, maxLines: 1, size: 42, minSize: 26, weight: 800, family: 'Inter, Arial, sans-serif' });
+
+  context.fillStyle = '#ffffff';
+  drawFittedText(context, attendee.fullName, { x: 592, centerY: 1420, maxWidth: 1000, maxLines: 1, size: 56, minSize: 32, weight: 800, family: SANS });
+  context.fillStyle = MEDIA_ORANGE;
+  const role = kind === 'executive' && attendee.leadershipRole ? `${attendee.leadershipRole} · Media Team` : 'Media Team';
+  drawFittedText(context, role.toUpperCase(), { x: 592, centerY: 1484, maxWidth: 1000, maxLines: 1, size: 30, minSize: 20, weight: 800, family: SANS });
+
+  context.fillStyle = 'rgba(255,255,255,0.72)';
+  drawFittedText(context, 'This pass identifies the holder as an official member of the convention media team, authorised to photograph, film and cover convention sessions.', { x: 592, centerY: 1640, maxWidth: 960, maxLines: 3, size: 32, minSize: 24, weight: 500, family: SANS, lineHeight: 1.35 });
+  context.fillStyle = 'rgba(255,255,255,0.5)';
+  drawFittedText(context, 'If found, please return it to the media desk.', { x: 592, centerY: 1790, maxWidth: 960, maxLines: 1, size: 26, minSize: 20, weight: 500, family: SANS });
+
+  const band = context.createLinearGradient(0, 0, width, 0);
+  band.addColorStop(0, '#ffb000');
+  band.addColorStop(1, '#ff4d00');
+  context.fillStyle = band;
+  context.fillRect(0, 1890, width, height - 1890);
+  context.fillStyle = '#0b0b0b';
+  drawFittedText(context, `MEDIA  ·  ${eventName.toUpperCase()}`, { x: 592, centerY: 1950, maxWidth: 1040, maxLines: 1, size: 32, minSize: 20, weight: 800, family: SANS });
+  context.restore();
+}
+
+function newCanvas() {
   const canvas = document.createElement('canvas');
   canvas.width = 1184;
   canvas.height = 2008;
   const context = canvas.getContext('2d');
   if (!context) throw new Error('Unable to create tag image.');
-  if (kind === 'executive') await drawExecutiveTag(context, member, eventName);
+  return { canvas, context };
+}
+
+/** Renders the front of the tag as a PNG data URL (media team members get the media design). */
+export async function createTagImage(member: TagAttendee, eventName: string, kind: 'member' | 'executive' = 'member') {
+  const { canvas, context } = newCanvas();
+  if (isMediaTeam(member.departments)) await drawMediaFront(context, member, eventName, kind);
+  else if (kind === 'executive') await drawExecutiveTag(context, member, eventName);
   else await drawMemberTag(context, member, eventName);
   return canvas.toDataURL('image/png');
 }
 
-/**
- * Tag PNG for attaching to an email, or undefined if it cannot be made quickly. The email must
- * never wait on (or fail because of) the attachment: it already links to the tag download page.
- */
-export async function tagImageForEmail(member: TagAttendee, eventName: string, kind: 'member' | 'executive' = 'member') {
-  try {
-    return await Promise.race([
-      createTagImage(member, eventName, kind),
-      new Promise<undefined>(resolve => window.setTimeout(() => resolve(undefined), 10000)),
-    ]);
-  } catch {
-    return undefined;
-  }
+/** Back of the tag as a PNG data URL; only media team members have one (null otherwise). */
+export async function createTagBackImage(member: TagAttendee, eventName: string, kind: 'member' | 'executive' = 'member') {
+  if (!isMediaTeam(member.departments)) return null;
+  const { canvas, context } = newCanvas();
+  await drawMediaBack(context, member, eventName, kind);
+  return canvas.toDataURL('image/png');
 }
 
-/** Triggers a browser download of the tag PNG. */
-export async function downloadTagImage(member: TagAttendee, eventName: string, kind: 'member' | 'executive' = 'member') {
-  const url = await createTagImage(member, eventName, kind);
+function withinSeconds<T>(promise: Promise<T>, seconds: number) {
+  return Promise.race([promise, new Promise<undefined>(resolve => window.setTimeout(() => resolve(undefined), seconds * 1000))])
+    .catch(() => undefined);
+}
+
+/**
+ * Tag PNGs (front, and back for the media team) for attaching to an email, each left out if it
+ * cannot be made quickly. The email must never wait on (or fail because of) the attachments:
+ * it already links to the tag download page.
+ */
+export async function tagImagesForEmail(member: TagAttendee, eventName: string, kind: 'member' | 'executive' = 'member') {
+  const [tagPng, tagBackPng] = await Promise.all([
+    withinSeconds(createTagImage(member, eventName, kind), 10),
+    withinSeconds(createTagBackImage(member, eventName, kind), 10),
+  ]);
+  return { tagPng: tagPng ?? undefined, tagBackPng: tagBackPng ?? undefined };
+}
+
+function saveDataUrl(url: string, filename: string) {
   const anchor = document.createElement('a');
   anchor.href = url;
-  anchor.download = `${member.code}-convention-tag.png`;
+  anchor.download = filename;
   anchor.click();
+}
+
+/** Triggers a browser download of the tag PNG (and the back, for the media team). */
+export async function downloadTagImage(member: TagAttendee, eventName: string, kind: 'member' | 'executive' = 'member') {
+  const url = await createTagImage(member, eventName, kind);
+  saveDataUrl(url, `${member.code}-convention-tag.png`);
+  const back = await createTagBackImage(member, eventName, kind);
+  if (back) window.setTimeout(() => saveDataUrl(back, `${member.code}-convention-tag-back.png`), 400);
   return url;
 }
