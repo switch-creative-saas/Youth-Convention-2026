@@ -294,6 +294,22 @@ export async function updateAttendee(id: string, patch: AttendeePatch) {
   if (error) fail(error);
 }
 
+/** Replaces an attendee's departments (admins and the registration desk). */
+export async function setAttendeeDepartments(scope: { workspaceId: string; eventId: string }, attendeeId: string, current: string[], next: string[]) {
+  const removed = current.filter(id => !next.includes(id));
+  const added = next.filter(id => !current.includes(id));
+  if (removed.length) {
+    const { error } = await supabase.from('attendee_departments').delete().eq('attendee_id', attendeeId).in('department_id', removed);
+    if (error) fail(error);
+  }
+  if (added.length) {
+    const { error } = await supabase.from('attendee_departments').insert(added.map(departmentId => ({
+      attendee_id: attendeeId, department_id: departmentId, event_id: scope.eventId, workspace_id: scope.workspaceId,
+    })));
+    if (error) fail(error);
+  }
+}
+
 export async function deleteAttendee(id: string, photoPath?: string | null) {
   const { error } = await supabase.from('attendees').delete().eq('id', id);
   if (error) fail(error);

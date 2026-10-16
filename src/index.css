@@ -568,6 +568,19 @@
     visibility: visible !important;
   }
 
+  /* Media team tags print front and back side by side. */
+  #convention-tag.tag-has-back,
+  #executive-convention-tag.tag-has-back {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr;
+    gap: 4mm;
+    width: 186mm !important;
+    max-width: 186mm !important;
+    aspect-ratio: auto !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+  }
+
   @page {
     size: A4 portrait;
     margin: 12mm;

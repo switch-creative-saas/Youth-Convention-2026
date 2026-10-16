@@ -66,6 +66,7 @@ interface AppDataContextType {
   createRegistrationLink: (kind: RegistrationKind, options?: { label?: string; maxUses?: number | null; expiresAt?: string | null }) => Promise<RegistrationLink>;
   setRegistrationLinkActive: (id: string, active: boolean) => Promise<void>;
   updateAttendee: (id: string, patch: api.AttendeePatch) => Promise<void>;
+  setAttendeeDepartments: (attendee: Attendee, departmentIds: string[]) => Promise<void>;
   deleteAttendee: (attendee: Attendee) => Promise<void>;
   recordManualCheckIn: (attendeeId: string, method?: 'manual' | 'qr_code') => Promise<void>;
   claimAccessItem: (attendeeId: string, item: AccessItemType) => Promise<{ ok: boolean; message: string }>;
@@ -443,6 +444,10 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     updateAttendee: async (id, patch) => {
       await api.updateAttendee(id, patch);
       await refreshAttendee(id);
+    },
+    setAttendeeDepartments: async (attendee, departmentIds) => {
+      await api.setAttendeeDepartments(requireEvent(), attendee.id, attendee.departmentIds, departmentIds);
+      await refreshAttendee(attendee.id);
     },
     deleteAttendee: async attendee => {
       await api.deleteAttendee(attendee.id, attendee.photoPath);

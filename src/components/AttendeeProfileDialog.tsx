@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
+import { useAuth } from '@/contexts/AuthContext';
 import { motion } from 'framer-motion';
 import { ExternalLink, X } from 'lucide-react';
 import { useAppData } from '@/contexts/AppDataContext';
 import { useToast } from '@/contexts/ToastContext';
 import { usePermission } from '@/hooks/usePermission';
-import { formatBirthday, formatDateTime, initials } from '@/lib/format';
+import { formatBirthday, formatDateOfBirth, formatDateTime, initials } from '@/lib/format';
 import { statusUrl } from '@/lib/supabase';
 import type { Attendee } from '@/types';
 
@@ -33,7 +34,10 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-/** Everything an attendee filled in at registration. Birthdays show the day and month only. */
+/**
+ * Everything an attendee filled in at registration. Birthdays show the day and month only, except
+ * to the platform owner, who sees the full date of birth. Admins can change the group and departments.
+ */
 export function AttendeeProfileDialog({ attendee, onClose }: { attendee: Attendee; onClose: () => void }) {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
@@ -43,7 +47,31 @@ export function AttendeeProfileDialog({ attendee, onClose }: { attendee: Attende
 
   const isMember = attendee.kind === 'member';
   const claims = attendee.accessClaims;
-  const { churchGroups, updateAttendee } = useAppData();
+  const { churchGroups, departments, updateAttendee, setAttendeeDepartments } = useAppData();
+  const { isPlatformAdmin } = useAuth();
+  const [departmentDraft, setDepartmentDraft] = useState<string[] | null>(null);
+  const [savingDepartments, setSavingDepartments] = useState(false);
+  const selectedDepartments = departmentDraft ?? attendee.departmentIds;
+  const departmentsChanged = departmentDraft !== null && (departmentDraft.length !== attendee.departmentIds.length || departmentDraft.some(id => !attendee.departmentIds.includes(id)));
+
+  const toggleDepartment = (id: string) => setDepartmentDraft(current => {
+    const base = current ?? attendee.departmentIds;
+    return base.includes(id) ? base.filter(item => item !== id) : [...base, id];
+  });
+
+  const saveDepartments = async () => {
+    if (!departmentDraft) return;
+    setSavingDepartments(true);
+    try {
+      await setAttendeeDepartments(attendee, departmentDraft);
+      setDepartmentDraft(null);
+      addToast({ type: 'success', title: 'Departments updated', description: 'Their tag and status page show the new departments.' });
+    } catch (error) {
+      addToast({ type: 'error', title: 'Could not update departments', description: error instanceof Error ? error.message : undefined });
+    } finally {
+      setSavingDepartments(false);
+    }
+  };
   const canManage = usePermission('manage');
   const { addToast } = useToast();
   const [savingGroup, setSavingGroup] = useState(false);
@@ -92,7 +120,9 @@ export function AttendeeProfileDialog({ attendee, onClose }: { attendee: Attende
 
         <Section title="Personal">
           <Field label="Gender" value={attendee.gender} />
-          <Field label="Birthday" value={formatBirthday(attendee.dateOfBirth)} />
+          {isPlatformAdmin
+            ? <Field label="Date of birth" value={formatDateOfBirth(attendee.dateOfBirth)} />
+            : <Field label="Birthday" value={formatBirthday(attendee.dateOfBirth)} />}
           <Field label="Occupation" value={attendee.occupation} />
           <Field label="Church branch" value={attendee.churchBranch} />
           <Field label="Address" value={attendee.address} wide />
@@ -121,7 +151,35 @@ export function AttendeeProfileDialog({ attendee, onClose }: { attendee: Attende
               </select>
             </div>
           ) : <Field label="Group" value={attendee.conventionGroup} />}
-          <Field label="Departments" value={attendee.departments.join(', ')} wide />
+          {canManage ? (
+            <div className="min-w-0 rounded-2xl bg-portal-surface px-4 py-3 sm:col-span-2">
+              <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-portal-label">Departments</p>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {departments.filter(item => item.active || attendee.departmentIds.includes(item.id)).map(item => {
+                  const selected = selectedDepartments.includes(item.id);
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      aria-pressed={selected}
+                      disabled={savingDepartments}
+                      onClick={() => toggleDepartment(item.id)}
+                      className={`min-h-9 rounded-full border px-3 text-xs font-medium disabled:opacity-60 ${selected ? 'border-portal-dark bg-portal-dark text-white' : 'border-portal-line text-portal-ink dark:text-white'}`}
+                    >
+                      {item.name}
+                    </button>
+                  );
+                })}
+                {departments.length === 0 && <span className="text-sm text-portal-label">Add departments on the Convention page first.</span>}
+              </div>
+              {departmentsChanged && (
+                <div className="mt-3 flex gap-2">
+                  <button type="button" disabled={savingDepartments} onClick={() => void saveDepartments()} className="min-h-9 rounded-full bg-portal-dark px-4 text-xs font-medium text-white disabled:opacity-60">{savingDepartments ? 'Saving…' : 'Save departments'}</button>
+                  <button type="button" disabled={savingDepartments} onClick={() => setDepartmentDraft(null)} className="min-h-9 rounded-full border border-portal-line px-4 text-xs font-medium text-portal-ink dark:text-white">Cancel</button>
+                </div>
+              )}
+            </div>
+          ) : <Field label="Departments" value={attendee.departments.join(', ')} wide />}
           {isMember && attendee.isFirstTimer && (
             <>
               <Field label="Invited by" value={attendee.invitedBy} />
