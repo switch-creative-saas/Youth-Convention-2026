@@ -65,7 +65,7 @@ interface AppDataContextType {
   deleteProgramme: (id: string) => Promise<void>;
   createRegistrationLink: (kind: RegistrationKind, options?: { label?: string; maxUses?: number | null; expiresAt?: string | null }) => Promise<RegistrationLink>;
   setRegistrationLinkActive: (id: string, active: boolean) => Promise<void>;
-  updateAttendee: (id: string, patch: { leadershipRole?: string; firstTimerFollowedUp?: boolean }) => Promise<void>;
+  updateAttendee: (id: string, patch: api.AttendeePatch) => Promise<void>;
   deleteAttendee: (attendee: Attendee) => Promise<void>;
   recordManualCheckIn: (attendeeId: string, method?: 'manual' | 'qr_code') => Promise<void>;
   claimAccessItem: (attendeeId: string, item: AccessItemType) => Promise<{ ok: boolean; message: string }>;

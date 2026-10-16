@@ -283,10 +283,13 @@ export async function setRegistrationLinkActive(id: string, active: boolean) {
   if (error) fail(error);
 }
 
-export async function updateAttendee(id: string, patch: { leadershipRole?: string; firstTimerFollowedUp?: boolean }) {
-  const values: { leadership_role?: string; first_timer_followed_up?: boolean } = {};
+export interface AttendeePatch { leadershipRole?: string; firstTimerFollowedUp?: boolean; groupId?: string | null }
+
+export async function updateAttendee(id: string, patch: AttendeePatch) {
+  const values: { leadership_role?: string; first_timer_followed_up?: boolean; group_id?: string | null } = {};
   if (patch.leadershipRole !== undefined) values.leadership_role = patch.leadershipRole;
   if (patch.firstTimerFollowedUp !== undefined) values.first_timer_followed_up = patch.firstTimerFollowedUp;
+  if (patch.groupId !== undefined) values.group_id = patch.groupId;
   const { error } = await supabase.from('attendees').update(values).eq('id', id);
   if (error) fail(error);
 }

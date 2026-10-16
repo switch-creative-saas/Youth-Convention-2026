@@ -1,6 +1,9 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { ExternalLink, X } from 'lucide-react';
+import { useAppData } from '@/contexts/AppDataContext';
+import { useToast } from '@/contexts/ToastContext';
+import { usePermission } from '@/hooks/usePermission';
 import { formatBirthday, formatDateTime, initials } from '@/lib/format';
 import { statusUrl } from '@/lib/supabase';
 import type { Attendee } from '@/types';
@@ -40,6 +43,22 @@ export function AttendeeProfileDialog({ attendee, onClose }: { attendee: Attende
 
   const isMember = attendee.kind === 'member';
   const claims = attendee.accessClaims;
+  const { churchGroups, updateAttendee } = useAppData();
+  const canManage = usePermission('manage');
+  const { addToast } = useToast();
+  const [savingGroup, setSavingGroup] = useState(false);
+
+  const changeGroup = async (groupId: string) => {
+    setSavingGroup(true);
+    try {
+      await updateAttendee(attendee.id, { groupId: groupId || null });
+      addToast({ type: 'success', title: 'Group updated', description: 'Their tag and status page show the new group.' });
+    } catch (error) {
+      addToast({ type: 'error', title: 'Could not change the group', description: error instanceof Error ? error.message : undefined });
+    } finally {
+      setSavingGroup(false);
+    }
+  };
   return (
     <div className="fixed inset-0 z-[100] flex items-end justify-center p-0 sm:items-center sm:p-4">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
@@ -87,7 +106,21 @@ export function AttendeeProfileDialog({ attendee, onClose }: { attendee: Attende
 
         <Section title="Convention">
           {isMember ? <Field label="Band" value={attendee.fellowshipBand} /> : <Field label="Leadership role" value={attendee.leadershipRole} />}
-          <Field label="Group" value={attendee.conventionGroup} />
+          {canManage ? (
+            <div className="min-w-0 rounded-2xl bg-portal-surface px-4 py-3">
+              <label htmlFor="profile-group" className="text-[10px] font-bold uppercase tracking-[0.14em] text-portal-label">Group</label>
+              <select
+                id="profile-group"
+                value={attendee.groupId ?? ''}
+                disabled={savingGroup}
+                onChange={event => void changeGroup(event.target.value)}
+                className="portal-focus mt-1 w-full rounded-lg border border-portal-line bg-transparent px-2 py-1.5 text-sm font-medium text-portal-ink disabled:opacity-60 dark:text-white"
+              >
+                <option value="">No group</option>
+                {churchGroups.filter(group => group.active || group.id === attendee.groupId).map(group => <option key={group.id} value={group.id}>{group.name}</option>)}
+              </select>
+            </div>
+          ) : <Field label="Group" value={attendee.conventionGroup} />}
           <Field label="Departments" value={attendee.departments.join(', ')} wide />
           {isMember && attendee.isFirstTimer && (
             <>

@@ -1,4 +1,6 @@
 import { supabase } from '@/lib/supabase';
+import { tagImageForEmail } from '@/lib/tagImage';
+import type { Attendee } from '@/types';
 
 export type ConfirmationResult = { status: 'sent' | 'already_sent'; id?: string; sentAt?: string };
 
@@ -10,6 +12,12 @@ export type ConfirmationResult = { status: 'sent' | 'already_sent'; id?: string;
  */
 export function sendRegistrationConfirmation(statusToken: string, options: { tagPng?: string; force?: boolean } = {}) {
   return invokeEmail<ConfirmationResult>({ statusToken, tagPng: options.tagPng, force: options.force ?? false });
+}
+
+/** Staff resend: attaches the tag when it can be drawn quickly, otherwise sends without it. */
+export async function resendConfirmation(attendee: Attendee, eventName: string) {
+  const tagPng = await tagImageForEmail(attendee, eventName, attendee.kind);
+  return sendRegistrationConfirmation(attendee.statusToken, { tagPng, force: true });
 }
 
 export type TimetableEmailResult =
