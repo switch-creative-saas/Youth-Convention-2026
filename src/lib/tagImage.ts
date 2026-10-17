@@ -1,7 +1,7 @@
 // Draws a convention tag as a PNG (used on screen, for downloads and printing, and as the
 // confirmation email attachment). Both are ID-card designs with a QR code of the attendee ID:
 // executives on a dark card with their leadership role, members on a milk card with their group.
-// Both show band, group and department(s).
+// Both show band, group and department(s). Media team members also get a media pass (front and back).
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { QRCodeSVG } from 'qrcode.react';
@@ -713,21 +713,24 @@ function newCanvas() {
   return { canvas, context };
 }
 
-/** Renders the front of the tag as a PNG data URL (media team members get the media design). */
+/** Renders the normal convention tag (member or executive design) as a PNG data URL. */
 export async function createTagImage(member: TagAttendee, eventName: string, kind: 'member' | 'executive' = 'member') {
   const { canvas, context } = newCanvas();
-  if (isMediaTeam(member.departments)) await drawMediaFront(context, member, eventName, kind);
-  else if (kind === 'executive') await drawExecutiveTag(context, member, eventName);
+  if (kind === 'executive') await drawExecutiveTag(context, member, eventName);
   else await drawMemberTag(context, member, eventName);
   return canvas.toDataURL('image/png');
 }
 
-/** Back of the tag as a PNG data URL; only media team members have one (null otherwise). */
-export async function createTagBackImage(member: TagAttendee, eventName: string, kind: 'member' | 'executive' = 'member') {
+/**
+ * The media pass (front and back) for media team members, in addition to their normal tag;
+ * null for everyone else.
+ */
+export async function createMediaPassImages(member: TagAttendee, eventName: string, kind: 'member' | 'executive' = 'member') {
   if (!isMediaTeam(member.departments)) return null;
-  const { canvas, context } = newCanvas();
-  await drawMediaBack(context, member, eventName, kind);
-  return canvas.toDataURL('image/png');
+  const front = newCanvas();
+  const back = newCanvas();
+  await Promise.all([drawMediaFront(front.context, member, eventName, kind), drawMediaBack(back.context, member, eventName, kind)]);
+  return { front: front.canvas.toDataURL('image/png'), back: back.canvas.toDataURL('image/png') };
 }
 
 function withinSeconds<T>(promise: Promise<T>, seconds: number) {
@@ -736,16 +739,16 @@ function withinSeconds<T>(promise: Promise<T>, seconds: number) {
 }
 
 /**
- * Tag PNGs (front, and back for the media team) for attaching to an email, each left out if it
- * cannot be made quickly. The email must never wait on (or fail because of) the attachments:
- * it already links to the tag download page.
+ * Tag PNGs for attaching to an email: the normal tag, plus the media pass front and back for the
+ * media team. Each is left out if it cannot be made quickly. The email must never wait on (or fail
+ * because of) the attachments: it already links to the tag download page.
  */
 export async function tagImagesForEmail(member: TagAttendee, eventName: string, kind: 'member' | 'executive' = 'member') {
-  const [tagPng, tagBackPng] = await Promise.all([
+  const [tagPng, media] = await Promise.all([
     withinSeconds(createTagImage(member, eventName, kind), 10),
-    withinSeconds(createTagBackImage(member, eventName, kind), 10),
+    withinSeconds(createMediaPassImages(member, eventName, kind), 12),
   ]);
-  return { tagPng: tagPng ?? undefined, tagBackPng: tagBackPng ?? undefined };
+  return { tagPng: tagPng ?? undefined, mediaPng: media?.front, mediaBackPng: media?.back };
 }
 
 function saveDataUrl(url: string, filename: string) {
@@ -755,11 +758,14 @@ function saveDataUrl(url: string, filename: string) {
   anchor.click();
 }
 
-/** Triggers a browser download of the tag PNG (and the back, for the media team). */
+/** Downloads the convention tag PNG, and the media pass front and back for the media team. */
 export async function downloadTagImage(member: TagAttendee, eventName: string, kind: 'member' | 'executive' = 'member') {
   const url = await createTagImage(member, eventName, kind);
   saveDataUrl(url, `${member.code}-convention-tag.png`);
-  const back = await createTagBackImage(member, eventName, kind);
-  if (back) window.setTimeout(() => saveDataUrl(back, `${member.code}-convention-tag-back.png`), 400);
+  const media = await createMediaPassImages(member, eventName, kind);
+  if (media) {
+    window.setTimeout(() => saveDataUrl(media.front, `${member.code}-media-pass-front.png`), 400);
+    window.setTimeout(() => saveDataUrl(media.back, `${member.code}-media-pass-back.png`), 800);
+  }
   return url;
 }

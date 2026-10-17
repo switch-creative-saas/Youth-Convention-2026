@@ -1,10 +1,10 @@
 // send-registration-email: emails attendees through Resend.
 //
-// POST { statusToken, tagPng?, tagBackPng?, force? }
+// POST { statusToken, tagPng?, mediaPng?, mediaBackPng?, force? }
 //   Registration confirmation (details, tag link, status link and the convention timetable).
 //   statusToken  the attendee's secret status token (proves the caller just registered or holds the link)
 //   tagPng       optional base64 PNG of their convention tag, attached to the email
-//   tagBackPng   optional base64 PNG of the back of the tag (media team), also attached
+//   mediaPng / mediaBackPng  optional base64 PNGs of the media pass front and back (media team), also attached
 //   force        resend even if already sent — only for signed-in admins / registration desk
 //
 // POST { action: 'send_timetable', eventId, preview?, limit? }   (signed-in workspace admins only)
@@ -316,7 +316,7 @@ Deno.serve(async req => {
     tagUrl: escapeHtml(`${statusUrl}/tag`),
   }, timetable.html);
 
-  // Optional tag attachments (front, and back for the media team): each must be a PNG under 3 MB.
+  // Optional attachments (the tag, plus the media pass for the media team): each must be a PNG under 3 MB.
   const attachments: Array<{ filename: string; content: string }> = [];
   const attach = (value: unknown, filename: string) => {
     if (typeof value !== 'string' || !value) return;
@@ -324,7 +324,8 @@ Deno.serve(async req => {
     if (content.startsWith('iVBORw0KGgo') && content.length * 0.75 <= MAX_TAG_BYTES) attachments.push({ filename, content });
   };
   attach(body.tagPng, `${attendee.code}-convention-tag.png`);
-  attach(body.tagBackPng, `${attendee.code}-convention-tag-back.png`);
+  attach(body.mediaPng, `${attendee.code}-media-pass-front.png`);
+  attach(body.mediaBackPng, `${attendee.code}-media-pass-back.png`);
 
   let result: { id?: string };
   try {

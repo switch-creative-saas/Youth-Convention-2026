@@ -7,11 +7,11 @@ export type ConfirmationResult = { status: 'sent' | 'already_sent'; id?: string;
 /**
  * Asks the send-registration-email Edge Function to email the attendee their confirmation.
  * The server looks up the recipient and details from the status token, so only the token
- * (and optionally the rendered tag PNGs to attach: front, and back for the media team) is sent from the browser.
+ * (and optionally the rendered tag PNGs to attach: the tag, plus the media pass for the media team) is sent from the browser.
  * `force` resends an already-sent email and requires a signed-in admin or registration desk user.
  */
-export function sendRegistrationConfirmation(statusToken: string, options: { tagPng?: string; tagBackPng?: string; force?: boolean } = {}) {
-  return invokeEmail<ConfirmationResult>({ statusToken, tagPng: options.tagPng, tagBackPng: options.tagBackPng, force: options.force ?? false });
+export function sendRegistrationConfirmation(statusToken: string, options: { tagPng?: string; mediaPng?: string; mediaBackPng?: string; force?: boolean } = {}) {
+  return invokeEmail<ConfirmationResult>({ statusToken, tagPng: options.tagPng, mediaPng: options.mediaPng, mediaBackPng: options.mediaBackPng, force: options.force ?? false });
 }
 
 /** Staff resend: attaches the tag when it can be drawn quickly, otherwise sends without it. */
