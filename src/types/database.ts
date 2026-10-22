@@ -168,6 +168,7 @@ export type Database = {
       assign_workspace_role: { Args: { p_email: string; p_role: Enum["workspace_role"]; p_workspace: string }; Returns: undefined }
       can_upload_registration_photo: { Args: { p_name: string }; Returns: boolean }
       claim_access_item: { Args: { p_attendee: string; p_item: Enum["access_item"] }; Returns: Json }
+      qr_check_in: { Args: { p_attendee: string; p_date: string; p_programme?: string | null }; Returns: Json }
       create_workspace: { Args: { p_code_prefix?: string; p_name: string; p_owner_email: string; p_slug: string }; Returns: string }
       enroll_fingerprint: {
         Args: {

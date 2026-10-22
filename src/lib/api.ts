@@ -361,6 +361,15 @@ export async function recordBiometricVerification(input: {
   return data as { ok: boolean; duplicate: boolean; message: string };
 }
 
+export interface QrCheckInResult { ok: boolean; already: boolean; message: string; checkedInAt?: string }
+
+/** Check-in from a scanned tag QR (once per day, or per session when one is chosen). */
+export async function qrCheckIn(attendeeId: string, date: string, programmeId?: string | null) {
+  const { data, error } = await supabase.rpc('qr_check_in', { p_attendee: attendeeId, p_date: date, p_programme: programmeId ?? null });
+  if (error) fail(error);
+  return data as unknown as QrCheckInResult;
+}
+
 export async function claimAccessItem(attendeeId: string, item: AccessItemType) {
   const { data, error } = await supabase.rpc('claim_access_item', { p_attendee: attendeeId, p_item: item });
   if (error) fail(error);
