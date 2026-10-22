@@ -1,5 +1,5 @@
 import { Link, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, UserPlus, Fingerprint, BarChart3, Settings, ShieldCheck, CalendarPlus } from 'lucide-react';
+import { LayoutDashboard, UserPlus, Fingerprint, BarChart3, Settings, ShieldCheck, CalendarPlus, ScanLine } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useAppData } from '@/contexts/AppDataContext';
 import { AppShell } from '@/components/ui-kit/AppShell';
@@ -9,6 +9,7 @@ import type { ReactNode } from 'react';
 const NAV_ITEMS = [
   { icon: LayoutDashboard, label: 'Dashboard', shortLabel: 'Home', to: '/admin/dashboard' },
   { icon: UserPlus, label: 'Registrations', shortLabel: 'Register', to: '/admin/registrations' },
+  { icon: ScanLine, label: 'Scan Tags', shortLabel: 'Scan', to: '/admin/scan' },
   { icon: Fingerprint, label: 'Attendance', shortLabel: 'Check-in', to: '/admin/attendance' },
   { icon: BarChart3, label: 'Analytics', shortLabel: 'Stats', to: '/admin/analytics' },
 ];

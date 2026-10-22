@@ -70,6 +70,7 @@ interface AppDataContextType {
   deleteAttendee: (attendee: Attendee) => Promise<void>;
   recordManualCheckIn: (attendeeId: string, method?: 'manual' | 'qr_code') => Promise<void>;
   claimAccessItem: (attendeeId: string, item: AccessItemType) => Promise<{ ok: boolean; message: string }>;
+  qrCheckIn: (attendeeId: string, programmeId?: string | null) => Promise<api.QrCheckInResult>;
   saveDevice: (device: Partial<BiometricDevice> & Pick<BiometricDevice, 'name'>) => Promise<void>;
   deleteDevice: (id: string) => Promise<void>;
   reportDeviceStatus: (id: string, status: BiometricDevice['status']) => Promise<void>;
@@ -466,6 +467,11 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     },
     claimAccessItem: async (attendeeId, item) => {
       const result = await api.claimAccessItem(attendeeId, item);
+      await refreshAttendee(attendeeId);
+      return result;
+    },
+    qrCheckIn: async (attendeeId, programmeId) => {
+      const result = await api.qrCheckIn(attendeeId, today, programmeId);
       await refreshAttendee(attendeeId);
       return result;
     },

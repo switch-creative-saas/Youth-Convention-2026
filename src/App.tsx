@@ -8,6 +8,7 @@ import { ResetPasswordPage } from '@/pages/ResetPasswordPage';
 import { AdminDashboard } from '@/pages/AdminDashboard';
 import { AdminRegistrations } from '@/pages/AdminRegistrations';
 import { AdminAttendance } from '@/pages/AdminAttendance';
+import { AdminScan } from '@/pages/AdminScan';
 import { AdminAnalytics } from '@/pages/AdminAnalytics';
 import { AdminSettings } from '@/pages/AdminSettings';
 import { AdminAccessManagement } from '@/pages/AdminAccessManagement';
@@ -56,6 +57,7 @@ function AppRoutes() {
 
       <Route path="/admin/dashboard" element={<RequireAuth><AdminDashboard /></RequireAuth>} />
       <Route path="/admin/registrations" element={<RequireAuth><AdminRegistrations /></RequireAuth>} />
+      <Route path="/admin/scan" element={<RequireAuth><AdminScan /></RequireAuth>} />
       <Route path="/admin/attendance" element={<RequireAuth><AdminAttendance /></RequireAuth>} />
       <Route path="/admin/analytics" element={<RequireAuth><AdminAnalytics /></RequireAuth>} />
       <Route path="/admin/convention" element={<RequireAuth roles={ADMINS}><AdminSettings /></RequireAuth>} />
